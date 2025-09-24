@@ -1,6 +1,10 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from . import models, schemas
+
+
+def get_categories_count(db: Session) -> int:
+    return db.query(models.Category).count()
 
 
 def get_categories(db: Session, skip: int = 0, limit: int = 100):
@@ -16,6 +20,19 @@ def get_category_by_slug(db: Session, slug: str):
 
 
 def create_category(db: Session, category: schemas.CategoryCreate):
+    base_slug = category.slug
+    counter = 1
+    current_slug = base_slug
+
+    while True:
+        existing_category = db.query(models.Category).filter(models.Category.slug == current_slug).first()
+        if not existing_category:
+            category.slug = current_slug
+            break
+
+        current_slug = f"{base_slug}-{counter}"
+        counter += 1
+
     db_category = models.Category(**category.dict())
     db.add(db_category)
     db.commit()
@@ -65,6 +82,10 @@ def get_subcategory_by_slug(db: Session, slug: str):
     return db.query(models.Subcategory).filter(models.Subcategory.slug == slug).first()
 
 
+def get_products_count_by_subcategory(db: Session, subcategory_id: int) -> int:
+    return db.query(models.Product).filter(models.Product.subcategory_id == subcategory_id).count()
+
+
 def create_subcategory(db: Session, subcategory: schemas.SubcategoryCreate):
     db_subcategory = models.Subcategory(**subcategory.dict())
     db.add(db_subcategory)
@@ -94,11 +115,16 @@ def update_subcategory(db: Session, subcategory_id: int, subcategory_update: sch
 
 
 def delete_subcategory(db: Session, subcategory_id: int):
-    db_subcategory = db.query(models.Subcategory).filter(models.Subcategory.id == subcategory_id).first()
-    if db_subcategory:
-        db.delete(db_subcategory)
+    products_count = db.query(models.Product).filter(models.Product.subcategory_id == subcategory_id).count()
+    if products_count > 0:
+        raise ValueError(f"Cannot delete subcategory with {products_count} products")
+
+    subcategory = db.query(models.Subcategory).filter(models.Subcategory.id == subcategory_id).first()
+    if subcategory:
+        db.delete(subcategory)
         db.commit()
-    return db_subcategory
+        return {"message": "Subcategory deleted successfully"}
+    return None
 
 
 def get_brands(db: Session, skip: int = 0, limit: int = 100):
@@ -136,62 +162,159 @@ def delete_brand(db: Session, brand_id: int):
 
 
 def get_products(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Product).offset(skip).limit(limit).all()
+    products = db.query(models.Product).offset(skip).limit(limit).all()
+
+    products_data = []
+    for product in products:
+        images = db.query(models.ProductImage.image_url).filter(
+            models.ProductImage.product_id == product.id
+        ).all()
+
+        product_data = {
+            "id": product.id,
+            "text": product.text,
+            "article": product.article,
+            "price": product.price,
+            "discount": product.discount,
+            "slug": product.slug,
+            "in_stock": product.in_stock,
+            "small_description": product.small_description,
+            "full_description": product.full_description,
+            "subcategory_id": product.subcategory_id,
+            "brand_id": product.brand_id,
+            "images": [img.image_url for img in images]
+        }
+        products_data.append(product_data)
+
+    return products_data
 
 
 def get_product_by_id(db: Session, product_id: int):
-    return db.query(models.Product).filter(models.Product.id == product_id).first()
+    return db.query(models.Product).options(
+        joinedload(models.Product.images)
+    ).filter(models.Product.id == product_id).first()
 
 
 def get_product_by_slug(db: Session, slug: str):
     return db.query(models.Product).filter(models.Product.slug == slug).first()
 
 
-def get_product_by_article(db: Session, article: str):
+def get_product_by_article(db: Session, article: int):
     return db.query(models.Product).filter(models.Product.article == article).first()
 
 
 def create_product(db: Session, product: schemas.ProductCreate):
-    db_product = models.Product(**product.dict(exclude={'tags', 'characteristics'}))
+    if product.article and db.query(models.Product).filter(models.Product.article == product.article).first():
+        import uuid
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H%M%S")
+        unique_id = str(uuid.uuid4())[:6].upper()
+        product.article = f"PRD-{timestamp}-{unique_id}"
+    elif not product.article:
 
-    if product.tags:
-        for tag_name in product.tags:
-            tag = db.query(models.Tag).filter(models.Tag.name == tag_name).first()
-            if not tag:
-                tag = models.Tag(name=tag_name)
-                db.add(tag)
-            db_product.tags.append(tag)
+        import uuid
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H%M%S")
+        unique_id = str(uuid.uuid4())[:6].upper()
+        product.article = f"PRD-{timestamp}-{unique_id}"
 
-    if product.characteristics:
-        for char_data in product.characteristics:
-            characteristic = models.Characteristic(**char_data.dict())
-            db.add(characteristic)
-            db_product.characteristics.append(characteristic)
+    if product.slug and db.query(models.Product).filter(models.Product.slug == product.slug).first():
+        counter = 1
+        while True:
+            new_slug = f"{product.slug}-{counter}"
+            if not db.query(models.Product).filter(models.Product.slug == new_slug).first():
+                product.slug = new_slug
+                break
+            counter += 1
+    elif not product.slug:
+
+        from slugify import slugify
+        product.slug = slugify(product.text, lowercase=True, word_boundary=True)
+
+        if db.query(models.Product).filter(models.Product.slug == product.slug).first():
+            counter = 1
+            while True:
+                new_slug = f"{product.slug}-{counter}"
+                if not db.query(models.Product).filter(models.Product.slug == new_slug).first():
+                    product.slug = new_slug
+                    break
+                counter += 1
+
+    product_data = product.dict(exclude={'images', 'tags', 'characteristics'})
+    db_product = models.Product(**product_data)
 
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
-    return db_product
+
+    if hasattr(product, 'images') and product.images:
+        for image_url in product.images:
+            db_image = models.ProductImage(
+                image_url=image_url,
+                product_id=db_product.id
+            )
+            db.add(db_image)
+        db.commit()
+
+    db.refresh(db_product)
+    images = db.query(models.ProductImage).filter(
+        models.ProductImage.product_id == db_product.id
+    ).all()
+
+    response_data = {
+        "id": db_product.id,
+        "text": db_product.text,
+        "article": db_product.article,
+        "price": db_product.price,
+        "discount": db_product.discount,
+        "slug": db_product.slug,
+        "in_stock": db_product.in_stock,
+        "small_description": db_product.small_description,
+        "full_description": db_product.full_description,
+        "subcategory_id": db_product.subcategory_id,
+        "brand_id": db_product.brand_id,
+        "images": [img.image_url for img in images]
+    }
+
+    return schemas.ProductResponse(**response_data)
 
 
 def update_product(db: Session, product_id: int, product_update: schemas.ProductUpdate):
     db_product = db.query(models.Product).filter_by(id=product_id).first()
-    if db_product:
-        new_slug = product_update.generate_slug(
-            current_text=db_product.text,
-            new_text=product_update.text
-        )
+    if not db_product:
+        return None
 
-        update_data = product_update.dict(exclude_unset=True)
-        if new_slug is not None:
-            update_data['slug'] = new_slug
+    new_slug = product_update.generate_slug(
+        current_text=db_product.text,
+        new_text=product_update.text
+    )
 
-        for key, value in update_data.items():
-            setattr(db_product, key, value)
+    update_data = product_update.dict(exclude_unset=True)
 
-        db.commit()
-        db.refresh(db_product)
-    return db_product
+    update_data = {k: v for k, v in update_data.items() if v is not None}
+
+    if new_slug is not None:
+        update_data['slug'] = new_slug
+
+    for key, value in update_data.items():
+        setattr(db_product, key, value)
+
+    db.commit()
+    db.refresh(db_product)
+
+    return {
+        "id": db_product.id,
+        "text": db_product.text,
+        "article": db_product.article,
+        "price": db_product.price,
+        "discount": db_product.discount,
+        "slug": db_product.slug,
+        "in_stock": db_product.in_stock,
+        "small_description": db_product.small_description,
+        "full_description": db_product.full_description,
+        "subcategory_id": db_product.subcategory_id,
+        "brand_id": db_product.brand_id
+    }
 
 
 def delete_product(db: Session, product_id: int):

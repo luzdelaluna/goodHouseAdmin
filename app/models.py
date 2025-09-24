@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Table, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Table, Text, ARRAY
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -108,12 +108,12 @@ class Product(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
-    image = Column(String)
     text = Column(String, index=True)
-    article = Column(String, unique=True, index=True)
+    article = Column(Integer, unique=True, index=True)
     price = Column(Float)
     discount = Column(Float, default=0)
     slug = Column(String, unique=True, index=True)
+    image = Column(String, nullable=True)
     in_stock = Column(Boolean, default=True)
     small_description = Column(Text, nullable=True)
     full_description = Column(Text, nullable=True)

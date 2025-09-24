@@ -36,7 +36,9 @@ class TimeWebS3Service:
 
         try:
 
-            if file.size == 0:
+            content = await file.read()
+
+            if file.size == 0 or len(content) == 0:
                 raise HTTPException(status_code=400, detail="File is empty")
 
             file_extension = file.filename.split('.')[-1].lower() if '.' in file.filename else 'bin'
@@ -44,8 +46,6 @@ class TimeWebS3Service:
             unique_filename = f"{timestamp}_{uuid.uuid4().hex[:8]}.{file_extension}"
 
             s3_key = f"{folder}/{unique_filename}" if folder else unique_filename
-
-            content = await file.read()
 
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
@@ -55,7 +55,8 @@ class TimeWebS3Service:
                 ACL='public-read'
             )
 
-            file_url = f"https://{self.bucket_name}.s3.{os.getenv('AWS_REGION')}.twcstorage.ru/{s3_key}"
+            # file_url = f"https://{self.bucket_name}.s3.{os.getenv('AWS_REGION')}.twcstorage.ru/{s3_key}"
+            file_url = f"https://s3.twcstorage.ru/{self.bucket_name}/{s3_key}"
             return file_url
 
         except HTTPException:
