@@ -3,6 +3,7 @@ from typing import List, Optional, Generic, TypeVar
 import re
 from slugify import slugify
 
+
 class PaginationInfo(BaseModel):
     current_page: int
     total_pages: int
@@ -214,6 +215,38 @@ class SubcategoryUpdate(BaseModel):
             return None
 
 
+class CharacteristicBase(BaseModel):
+    name: str
+
+
+class CharacteristicCreate(CharacteristicBase):
+    pass
+
+
+class Characteristic(CharacteristicBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class ProductCharacteristicBase(BaseModel):
+    characteristic_id: int
+    value: str
+
+
+class ProductCharacteristicCreate(ProductCharacteristicBase):
+    pass
+
+
+class ProductCharacteristic(ProductCharacteristicBase):
+    id: int
+    characteristic: Characteristic
+
+    class Config:
+        from_attributes = True
+
+
 class ProductBase(BaseModel):
     images: List[str]
     text: str
@@ -223,6 +256,7 @@ class ProductBase(BaseModel):
     slug: Optional[str] = Field(default=None, description="Автогенерация, если не указан")
     subcategory_id: int
     brand_id: Optional[int] = None
+    characteristics: List[ProductCharacteristicCreate] = []
 
     @field_validator('slug')
     @classmethod
@@ -277,7 +311,7 @@ class Product(ProductBase):
     small_description: Optional[str] = None
     full_description: Optional[str] = None
     tags: List[Tag] = []
-    characteristics: List[Characteristic] = []
+    characteristics: List[ProductCharacteristic] = []
     images: List[dict] = []
 
     class Config:
@@ -297,6 +331,7 @@ class ProductResponse(BaseModel):
     subcategory_id: int
     brand_id: Optional[int] = None
     images: List[str] = []
+    characteristics: List[dict] = []
 
     class Config:
         from_attributes = True
