@@ -9,13 +9,6 @@ product_tags = Table(
     Column('tag_id', Integer, ForeignKey('tags.id'))
 )
 
-product_characteristics = Table(
-    'product_characteristics',
-    Base.metadata,
-    Column('product_id', Integer, ForeignKey('products.id')),
-    Column('characteristic_id', Integer, ForeignKey('characteristics.id'))
-)
-
 product_similar = Table(
     'product_similar',
     Base.metadata,
@@ -72,27 +65,6 @@ class Tag(Base):
     products = relationship("Product", secondary=product_tags, back_populates="tags")
 
 
-class CharacteristicTemplate(Base):
-    __tablename__ = "characteristic_templates"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-
-    characteristics = relationship("Characteristic", back_populates="template")
-
-
-class Characteristic(Base):
-    __tablename__ = "characteristics"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    value = Column(String)
-    template_id = Column(Integer, ForeignKey("characteristic_templates.id"), nullable=True)
-
-    template = relationship("CharacteristicTemplate", back_populates="characteristics")
-    products = relationship("Product", secondary=product_characteristics, back_populates="characteristics")
-
-
 class Brand(Base):
     __tablename__ = "brands"
 
@@ -123,7 +95,6 @@ class Product(Base):
     subcategory = relationship("Subcategory", back_populates="products")
     brand = relationship("Brand", back_populates="products")
     tags = relationship("Tag", secondary=product_tags, back_populates="products")
-    characteristics = relationship("Characteristic", secondary=product_characteristics, back_populates="products")
     similar_products = relationship(
         "Product",
         secondary=product_similar,

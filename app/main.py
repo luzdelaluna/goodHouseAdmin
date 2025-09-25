@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import logging
 from fastapi.exceptions import RequestValidationError, HTTPException
 from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -13,6 +14,21 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Product Catalog API", version="1.0.0")
+
+origins = [
+    "http://localhost",
+    "http://localhost:8080",
+    "http://localhost:3000",
+    "http://localhost:8000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # List of allowed origins
+    allow_credentials=True, # Allow cookies to be sent with cross-origin requests
+    allow_methods=["*"],    # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],    # Allow all headers
+)
 
 
 @app.exception_handler(RequestValidationError)

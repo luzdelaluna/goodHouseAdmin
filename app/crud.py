@@ -242,7 +242,6 @@ def create_product(db: Session, product: schemas.ProductCreate):
 
     product_data = product.dict(exclude={'images', 'tags', 'characteristics'})
     db_product = models.Product(**product_data)
-
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
@@ -256,9 +255,23 @@ def create_product(db: Session, product: schemas.ProductCreate):
             db.add(db_image)
         db.commit()
 
+    if hasattr(product, 'characteristics') and product.characteristics:
+        for char_data in product.characteristics:
+            db_char = models.ProductCharacteristic(
+                product_id=db_product.id,
+                characteristic_id=char_data.characteristic_id,
+                value=char_data.value
+            )
+            db.add(db_char)
+        db.commit()
+
     db.refresh(db_product)
     images = db.query(models.ProductImage).filter(
         models.ProductImage.product_id == db_product.id
+    ).all()
+
+    characteristics = db.query(models.ProductCharacteristic).filter(
+        models.ProductCharacteristic.product_id == db_product.id
     ).all()
 
     response_data = {
@@ -273,7 +286,15 @@ def create_product(db: Session, product: schemas.ProductCreate):
         "full_description": db_product.full_description,
         "subcategory_id": db_product.subcategory_id,
         "brand_id": db_product.brand_id,
-        "images": [img.image_url for img in images]
+        "images": [img.image_url for img in images],
+        "characteristics": [
+            {
+                "id": char.id,
+                "characteristic_id": char.characteristic_id,
+                "value": char.value
+            }
+            for char in characteristics
+        ]
     }
 
     return schemas.ProductResponse(**response_data)

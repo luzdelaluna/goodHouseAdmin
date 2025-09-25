@@ -16,15 +16,16 @@ async def create_product_with_upload(
         article: Optional[int] = Form(None),
         slug: Optional[str] = Form(None),
         discount: float = Form(0),
+        characteristics: str = Form("[]"),
         images: List[UploadFile] = File(..., description="От 1 до 15 изображений"),
         db: Session = Depends(database.get_db)
 ):
     try:
 
         if len(images) < 1:
-            raise HTTPException(status_code=400, detail="Должна быть как минимум 1 картинка")
+            raise HTTPException(status_code=400, detail="Должно быть как минимум 1 изображение")
         if len(images) > 15:
-            raise HTTPException(status_code=400, detail="Не более 15 картинок")
+            raise HTTPException(status_code=400, detail="Не более 15 изображений")
 
         subcategory = db.query(models.Subcategory).filter(models.Subcategory.id == subcategory_id).first()
         if not subcategory:
@@ -33,6 +34,12 @@ async def create_product_with_upload(
         brand = db.query(models.Brand).filter(models.Brand.id == brand_id).first()
         if not brand:
             raise HTTPException(status_code=404, detail=f"Brand with id {brand_id} not found")
+
+        import json
+        try:
+            characteristics_data = json.loads(characteristics)
+        except json.JSONDecodeError:
+            characteristics_data = []
 
         image_urls = []
         for image in images:
@@ -48,7 +55,8 @@ async def create_product_with_upload(
             "brand_id": brand_id,
             "article": article,
             "slug": slug,
-            "discount": discount
+            "discount": discount,
+            "characteristics": characteristics_data,
         }
 
         db_product = crud.create_product(db=db, product=schemas.ProductCreate(**product_data))
