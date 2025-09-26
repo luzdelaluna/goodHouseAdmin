@@ -1,13 +1,9 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Table, Text, ARRAY
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Table, Text, Enum as SQLEnum, DateTime, \
+    UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+import enum
 from .database import Base
-
-product_tags = Table(
-    'product_tags',
-    Base.metadata,
-    Column('product_id', Integer, ForeignKey('products.id')),
-    Column('tag_id', Integer, ForeignKey('tags.id'))
-)
 
 product_similar = Table(
     'product_similar',
@@ -38,7 +34,36 @@ class Filter(Base):
     status = Column(Boolean, default=True)
     category_id = Column(Integer, ForeignKey("categories.id"))
 
+    value = Column(String, unique=True, index=True)
+
     category = relationship("Category", back_populates="filters")
+    items = relationship("FilterItem", back_populates="filter", cascade="all, delete-orphan")
+    characteristics = relationship("Characteristic", back_populates="filter")
+
+
+class FilterItem(Base):
+    __tablename__ = "filter_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filter_id = Column(Integer, ForeignKey("filters.id"))
+    value = Column(String)
+    label = Column(String)
+
+    filter = relationship("Filter", back_populates="items")
+    characteristics = relationship("Characteristic", back_populates="filter_item")
+
+
+class Characteristic(Base):
+    __tablename__ = "characteristics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    filter_id = Column(Integer, ForeignKey("filters.id"))
+    filter_item_id = Column(Integer, ForeignKey("filter_items.id"))
+
+    product = relationship("Product", back_populates="characteristics")
+    filter = relationship("Filter", back_populates="characteristics")
+    filter_item = relationship("FilterItem", back_populates="characteristics")
 
 
 class Subcategory(Base):
@@ -61,9 +86,19 @@ class Tag(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
+    value = Column(String, unique=True, index=True)
 
-    products = relationship("Product", secondary=product_tags, back_populates="tags")
+    products = relationship("Product", secondary="product_tags", back_populates="tags")
 
+
+class ProductTag(Base):
+    __tablename__ = "product_tags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    tag_id = Column(Integer, ForeignKey("tags.id"))
+
+    __table_args__ = (UniqueConstraint('product_id', 'tag_id', name='_product_tag_uc'),)
 
 class Brand(Base):
     __tablename__ = "brands"
@@ -94,7 +129,7 @@ class Product(Base):
 
     subcategory = relationship("Subcategory", back_populates="products")
     brand = relationship("Brand", back_populates="products")
-    tags = relationship("Tag", secondary=product_tags, back_populates="products")
+    tags = relationship("Tag", secondary="product_tags", back_populates="products")
     similar_products = relationship(
         "Product",
         secondary=product_similar,
@@ -106,6 +141,7 @@ class Product(Base):
     documents = relationship("Document", back_populates="product")
     images = relationship("ProductImage", back_populates="product")
     additional_products = relationship("AdditionalProduct", back_populates="product")
+    characteristics = relationship("Characteristic", back_populates="product")
 
 
 class ProductWarehouse(Base):
@@ -149,3 +185,44 @@ class AdditionalProduct(Base):
     product_id = Column(Integer, ForeignKey("products.id"))
 
     product = relationship("Product", back_populates="additional_products")
+
+
+class UserRole(str, enum.Enum):
+    SUPERUSER = "superuser"
+    ADMIN = "admin"
+
+
+class UserRole(str, enum.Enum):
+    SUPERUSER = "superuser"
+    ADMIN = "admin"
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    role = Column(SQLEnum(UserRole), default=UserRole.ADMIN)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    created_users = relationship("User", remote_side=[id], backref="creator")
+    refresh_tokens = relationship("RefreshToken", back_populates="user")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    expires_at = Column(DateTime(timezone=True))
+    is_revoked = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="refresh_tokens")
+
+

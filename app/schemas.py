@@ -1,7 +1,80 @@
-from pydantic import BaseModel, field_validator, model_validator, Field
-from typing import List, Optional, Generic, TypeVar
+from pydantic import BaseModel, field_validator, model_validator, Field, EmailStr, validator, ConfigDict
+from typing import List, Optional
 import re
 from slugify import slugify
+import enum
+from datetime import datetime
+
+
+class UserRole(str, enum.Enum):
+    SUPERUSER = "superuser"
+    ADMIN = "admin"
+
+
+class UserBase(BaseModel):
+    email: Optional[EmailStr] = None
+    username: Optional[str] = None
+
+
+class UserCreateManual(UserBase):
+    password: str
+    role: UserRole = UserRole.ADMIN
+
+    @validator('email', pre=True, always=True)
+    def validate_email_or_username(cls, v, values):
+        if not v and not values.get('username'):
+            raise ValueError('Either email or username must be provided')
+        return v
+
+
+class UserCreateAuto(BaseModel):
+    role: UserRole = UserRole.ADMIN
+
+
+class UserLogin(BaseModel):
+    login: str
+    password: str
+
+
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @validator('email')
+    def validate_email_unique(cls, v):
+        if v:
+            return v
+        return v
+
+
+class UserResponse(UserBase):
+    id: int
+    role: UserRole
+    is_active: bool
+    created_at: datetime
+    generated_password: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str
+    user_role: UserRole
+    expires_in: int
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class TokenData(BaseModel):
+    user_id: int
+    role: UserRole
 
 
 class PaginationInfo(BaseModel):
@@ -18,23 +91,30 @@ class CategoryPaginatedResponse(BaseModel):
 
 class TagBase(BaseModel):
     name: str
+    value: Optional[str] = None
 
 
 class TagCreate(TagBase):
     pass
 
 
-class Tag(TagBase):
+class TagUpdate(BaseModel):
+    name: Optional[str] = None
+    value: Optional[str] = None
+    color: Optional[str] = None
+
+
+class TagResponse(TagBase):
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CharacteristicBase(BaseModel):
-    name: str
+    filter_value: str
+    filter_label: str
     value: str
-    template_id: Optional[int] = None
+    label: str
 
 
 class CharacteristicCreate(CharacteristicBase):
@@ -48,10 +128,28 @@ class Characteristic(CharacteristicBase):
         from_attributes = True
 
 
+class FilterItemBase(BaseModel):
+    value: str
+    label: str
+
+
+class FilterItemCreate(FilterItemBase):
+    pass
+
+
+class FilterItem(FilterItemBase):
+    id: int
+    filter_id: int
+
+    class Config:
+        from_attributes = True
+
+
 class FilterBase(BaseModel):
     image: Optional[str] = None
     text: str
     status: bool = True
+    items: List[FilterItem] = []
 
     @field_validator('image')
     def validate_image_url(cls, v):
@@ -62,11 +160,38 @@ class FilterBase(BaseModel):
 
 class FilterCreate(FilterBase):
     category_id: int
+    items: List[FilterItemCreate] = []
+
+
+class FilterUpdate(FilterBase):
+    image: Optional[str] = None
+    text: Optional[str] = None
+    status: Optional[bool] = None
+    items: Optional[List[FilterItemCreate]] = None
 
 
 class Filter(FilterBase):
     id: int
     category_id: int
+    items: List[FilterItem] = []
+
+    class Config:
+        from_attributes = True
+
+
+class CharacteristicBase(BaseModel):
+    filter_value: str
+    filter_label: str
+    value: str
+    label: str
+
+
+class CharacteristicCreate(CharacteristicBase):
+    pass
+
+
+class Characteristic(CharacteristicBase):
+    id: int
 
     class Config:
         from_attributes = True
@@ -124,17 +249,11 @@ class CategoryUpdate(BaseModel):
         return v
 
     def generate_slug(self, current_text: str, new_text: Optional[str] = None):
-
         if self.slug is not None:
-
             return self.slug
-
         elif new_text is not None and new_text != current_text:
-
             return slugify(new_text, lowercase=True, word_boundary=True)
-
         else:
-
             return None
 
 
@@ -215,38 +334,6 @@ class SubcategoryUpdate(BaseModel):
             return None
 
 
-class CharacteristicBase(BaseModel):
-    name: str
-
-
-class CharacteristicCreate(CharacteristicBase):
-    pass
-
-
-class Characteristic(CharacteristicBase):
-    id: int
-
-    class Config:
-        from_attributes = True
-
-
-class ProductCharacteristicBase(BaseModel):
-    characteristic_id: int
-    value: str
-
-
-class ProductCharacteristicCreate(ProductCharacteristicBase):
-    pass
-
-
-class ProductCharacteristic(ProductCharacteristicBase):
-    id: int
-    characteristic: Characteristic
-
-    class Config:
-        from_attributes = True
-
-
 class ProductBase(BaseModel):
     images: List[str]
     text: str
@@ -256,7 +343,7 @@ class ProductBase(BaseModel):
     slug: Optional[str] = Field(default=None, description="Автогенерация, если не указан")
     subcategory_id: int
     brand_id: Optional[int] = None
-    characteristics: List[ProductCharacteristicCreate] = []
+    tag_ids: Optional[List[int]] = []
 
     @field_validator('slug')
     @classmethod
@@ -286,19 +373,24 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
+    class ProductCreate(ProductBase):
+        characteristics: List[CharacteristicCreate] = []
+
     def generate_slugs(self):
 
         from slugify import slugify
-        import uuid
         import datetime
+        import random
 
         if self.slug is None:
             self.slug = slugify(self.text, lowercase=True, word_boundary=True)
 
         if self.article is None:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d")
-            unique_id = str(uuid.uuid4())[:8].upper()
-            self.article = f"PRD-{timestamp}-{unique_id}"
+            timestamp = int(datetime.datetime.now().timestamp()) % 100000
+            random_part = random.randint(100, 999)
+            self.article = timestamp * 1000 + random_part
+
+            self.article %= 100000000
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -310,8 +402,8 @@ class Product(ProductBase):
     in_stock: bool = True
     small_description: Optional[str] = None
     full_description: Optional[str] = None
-    tags: List[Tag] = []
-    characteristics: List[ProductCharacteristic] = []
+    tags: List['TagResponse'] = []
+    characteristics: List[Characteristic] = []
     images: List[dict] = []
 
     class Config:
@@ -332,6 +424,7 @@ class ProductResponse(BaseModel):
     brand_id: Optional[int] = None
     images: List[str] = []
     characteristics: List[dict] = []
+    tags: List['TagResponse'] = []
 
     class Config:
         from_attributes = True
@@ -371,6 +464,12 @@ class ProductUpdate(BaseModel):
         if v is not None and v <= 0:
             raise ValueError('Артикул должен быть положительным числом')
         return v
+
+
+class ProductsByTagResponse(BaseModel):
+    tag: TagResponse
+    products: List[ProductResponse]
+    total: int
 
 
 class ProductDetail(Product):
