@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from .. import crud, schemas, database, models
+from .. import crud, schemas, database, models, dependencies
 from ..s3_service import s3_service
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -18,7 +18,8 @@ async def create_product_with_upload(
         discount: float = Form(0),
         characteristics: str = Form("[]"),
         images: List[UploadFile] = File(..., description="От 1 до 15 изображений"),
-        db: Session = Depends(database.get_db)
+        db: Session = Depends(database.get_db),
+        _current_user: dict = Depends(dependencies.require_admin)
 ):
     try:
 
@@ -66,6 +67,22 @@ async def create_product_with_upload(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating product: {str(e)}")
+
+
+@router.get("/filter/")
+def get_filtered_products(
+        subcategory_id: int = Query(...),
+        db: Session = Depends(database.get_db)
+):
+    filters = {}
+
+    products = crud.get_products_with_filters(db, subcategory_id, filters)
+    return products
+
+
+@router.get("/filters/{subcategory_id}")
+def get_available_filters(subcategory_id: int, db: Session = Depends(database.get_db)):
+    return crud.get_filters_for_subcategory(db, subcategory_id)
 
 
 @router.get("/", response_model=schemas.PaginatedResponse)
@@ -137,7 +154,8 @@ async def update_product(
         brand_id: Optional[int] = Form(None),
         discount: Optional[float] = Form(None),
         image: Optional[UploadFile] = File(None),
-        db: Session = Depends(database.get_db)
+        db: Session = Depends(database.get_db),
+        _current_user: dict = Depends(dependencies.require_admin)
 ):
     try:
         db_product = crud.get_product_by_id(db, product_id=product_id)
@@ -146,17 +164,14 @@ async def update_product(
 
         update_data = {}
 
-
         if image is not None and hasattr(image, 'filename') and image.filename and image.filename.strip():
             new_image_url = await s3_service.upload_file(image, "images")
             if db_product.image:
                 await s3_service.delete_file(db_product.image)
             update_data["image"] = new_image_url
 
-
         if text is not None:
             update_data["text"] = text
-
 
         if article is not None:
             update_data["article"] = article
@@ -166,7 +181,6 @@ async def update_product(
 
         if slug is not None:
             update_data["slug"] = slug
-
 
         if subcategory_id is not None:
             db_subcategory = crud.get_subcategory_by_id(db, subcategory_id=subcategory_id)
@@ -183,11 +197,9 @@ async def update_product(
         if discount is not None:
             update_data["discount"] = discount
 
-
         if text is not None and text != db_product.text and slug is None:
             from slugify import slugify
             update_data["slug"] = slugify(text, lowercase=True, word_boundary=True)
-
 
         if update_data:
             return crud.update_product(
@@ -205,7 +217,11 @@ async def update_product(
 
 
 @router.delete("/{product_id}")
-def delete_product(product_id: int, db: Session = Depends(database.get_db)):
+def delete_product(
+        product_id: int,
+        db: Session = Depends(database.get_db),
+        _current_user: dict = Depends(dependencies.require_admin)
+):
     try:
         product = crud.get_product_by_id(db, product_id=product_id)
         if product is None:

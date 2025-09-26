@@ -98,15 +98,23 @@ async def update_category(
             raise HTTPException(status_code=404, detail="Category not found")
 
         update_data = {}
+        old_icon_url = None
+        new_icon_url = None
 
-        if icon and icon.filename:
-            new_icon_url = await s3_service.upload_file(icon, "icons")
-            if db_category.icon:
-                await s3_service.delete_file(db_category.icon)
-            update_data["icon"] = new_icon_url
+        if icon is not None:
+            if icon.filename:
+
+                new_icon_url = await s3_service.upload_file(icon, "icons")
+                update_data["icon"] = new_icon_url
+
+                old_icon_url = db_category.icon
+            else:
+                update_data["icon"] = None
+                old_icon_url = db_category.icon
 
         if text is not None:
             update_data["text"] = text
+
         if slug is not None:
             update_data["slug"] = slug
 
@@ -115,17 +123,40 @@ async def update_category(
             update_data["slug"] = slugify(text, lowercase=True, word_boundary=True)
 
         if update_data:
-            return crud.update_category(
+            updated_category = crud.update_category(
                 db=db,
                 category_id=category_id,
                 category_update=schemas.CategoryUpdate(**update_data)
             )
+
+            if old_icon_url:
+                try:
+                    await s3_service.delete_file(old_icon_url)
+                except Exception as delete_error:
+                    print(f"Warning: Could not delete old icon {old_icon_url}: {delete_error}")
+
+            return updated_category
         else:
             return db_category
 
+
     except HTTPException as e:
+
+        if 'new_icon_url' in locals() and new_icon_url:
+            try:
+                await s3_service.delete_file(new_icon_url)
+            except:
+                pass
+
         raise e
+
     except Exception as e:
+        if 'new_icon_url' in locals() and new_icon_url:
+            try:
+                await s3_service.delete_file(new_icon_url)
+            except:
+                pass
+
         raise HTTPException(status_code=400, detail=str(e))
 
 

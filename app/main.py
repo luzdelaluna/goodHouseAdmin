@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
-from . import database
-from .routers import categories, subcategories, products, brands, filters, upload
+from . import database, models
+from .routers import categories, subcategories, products, brands, filters, upload, auth
 import os
 from dotenv import load_dotenv
 import logging
@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Product Catalog API", version="1.0.0")
 
+app.include_router(auth.router)
+app.include_router(products.router)
+
 origins = [
     "http://localhost",
     "http://localhost:8080",
@@ -25,9 +28,9 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,  # List of allowed origins
-    allow_credentials=True, # Allow cookies to be sent with cross-origin requests
-    allow_methods=["*"],    # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],    # Allow all headers
+    allow_credentials=True,  # Allow cookies to be sent with cross-origin requests
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
 
@@ -70,6 +73,13 @@ async def general_exception_handler(request: Request, exc: Exception):
 def startup_event():
     database.check_database()
 
+    models.Base.metadata.create_all(bind=database.engine)
+
+    db = database.SessionLocal()
+    try:
+        database.create_initial_superuser(db)
+    finally:
+        db.close()
 
 app.include_router(categories.router)
 app.include_router(subcategories.router)
