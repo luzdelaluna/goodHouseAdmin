@@ -36,7 +36,7 @@ async def create_category_with_upload(
 
 @router.get("/", response_model=schemas.CategoryPaginatedResponse)
 def read_categories(
-        page: int = Query(1, ge=1, description="Номер страницы (начинается с 1)"),
+        page: int = Query(1, ge=1, description="Номер страницы"),
         limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
         db: Session = Depends(database.get_db)
 ):

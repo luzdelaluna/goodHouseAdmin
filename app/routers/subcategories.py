@@ -1,5 +1,4 @@
-from email.mime import image
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import crud, schemas, database, models
@@ -46,10 +45,32 @@ async def create_subcategory_with_upload(
         raise e
 
 
-@router.get("/", response_model=List[schemas.Subcategory])
-def read_subcategories(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
+@router.get("/", response_model=schemas.SubcategoryPaginatedResponse)
+def read_subcategories(
+        page: int = Query(1, ge=1, description="Номер страницы"),
+        limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
+        db: Session = Depends(database.get_db)
+):
     try:
-        return crud.get_subcategories(db, skip=skip, limit=limit)
+
+        skip = (page - 1) * limit
+
+        subcategories = crud.get_subcategories(db, skip=skip, limit=limit)
+
+        total_count = crud.get_subcategories_count(db)
+
+        total_pages = (total_count + limit - 1) // limit
+
+        return {
+            "data": subcategories,
+            "pagination": {
+                "current_page": page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "total_items": total_count
+            }
+        }
+
     except HTTPException as e:
         raise e
 
