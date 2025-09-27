@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Optional
 from .. import crud, schemas, database
 from ..s3_service import s3_service
+from ..dependencies import require_admin
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -11,8 +12,9 @@ router = APIRouter(prefix="/categories", tags=["categories"])
 async def create_category_with_upload(
         text: str = Form(...),
         slug: Optional[str] = Form(None),
-        icon: Optional[UploadFile] = File(None),
-        db: Session = Depends(database.get_db)
+        icon: UploadFile = File(...),
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
 ):
     icon_url = None
     if icon:
@@ -90,7 +92,8 @@ async def update_category(
         icon: Optional[UploadFile] = File(None),
         text: Optional[str] = Form(None),
         slug: Optional[str] = Form(None),
-        db: Session = Depends(database.get_db)
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
 ):
     try:
         db_category = crud.get_category_by_id(db, category_id=category_id)
@@ -161,7 +164,11 @@ async def update_category(
 
 
 @router.delete("/{category_id}")
-def delete_category(category_id: int, db: Session = Depends(database.get_db)):
+def delete_category(
+        category_id: int,
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
+):
     try:
         category = crud.get_category_by_id(db, category_id=category_id)
         if category is None:

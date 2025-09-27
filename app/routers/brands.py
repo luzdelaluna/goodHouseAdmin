@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import crud, schemas, database
 from ..s3_service import s3_service
+from ..dependencies import require_admin
 
 router = APIRouter(prefix="/brands", tags=["brands"])
 
@@ -11,7 +12,8 @@ router = APIRouter(prefix="/brands", tags=["brands"])
 async def create_brand_with_upload(
         name: str = Form(...),
         image: UploadFile = File(...),
-        db: Session = Depends(database.get_db)
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
 ):
     try:
         image_url = await s3_service.upload_file(image, "brands")
@@ -62,7 +64,8 @@ async def update_brand_with_upload(
         brand_id: int,
         name: str = Form(...),
         image: Optional[UploadFile] = File(None),
-        db: Session = Depends(database.get_db)
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
 ):
     try:
         db_brand = crud.get_brand_by_id(db, brand_id=brand_id)
@@ -86,7 +89,11 @@ async def update_brand_with_upload(
 
 
 @router.delete("/{brand_id}")
-def delete_brand(brand_id: int, db: Session = Depends(database.get_db)):
+def delete_brand(
+        brand_id: int,
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
+):
     try:
         brand = crud.get_brand_by_id(db, brand_id=brand_id)
         if brand is None:

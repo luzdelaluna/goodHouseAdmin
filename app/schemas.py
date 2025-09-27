@@ -303,9 +303,19 @@ class Subcategory(SubcategoryBase):
     id: int
     category_id: Optional[int] = None
     brand_id: Optional[int]
+    category_name: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode='before')
+    @classmethod
+    def set_category_name(cls, values):
+        if hasattr(values, 'category') and values.category:
+            # Берем поле 'text' из связанной категории
+            values.category_name = values.category.text
+        else:
+            values.category_name = ""
+        return values
 
 
 class SubcategoryUpdate(BaseModel):

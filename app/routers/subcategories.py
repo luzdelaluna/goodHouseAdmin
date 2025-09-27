@@ -1,22 +1,23 @@
 from email.mime import image
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import crud, schemas, database, models
 from ..s3_service import s3_service, TimeWebS3Service
+from ..dependencies import require_admin
 
 router = APIRouter(prefix="/subcategories", tags=["subcategories"])
 
 
-@router.post("/with-upload", response_model=schemas.Subcategory)
+@router.post("/", response_model=schemas.Subcategory)
 async def create_subcategory_with_upload(
         text: str = Form(...),
-        slug: Optional[str] = None,
+        slug: Optional[str] = Form(None),
         category_id: int = Form(...),
         brand_id: Optional[int] = Form(None),
-        image: Optional[UploadFile] = File(None),
-        db: Session = Depends(database.get_db)
+        image: UploadFile = File(...),
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
 ):
     try:
         category = db.query(models.Category).filter(models.Category.id == category_id).first()
@@ -83,7 +84,8 @@ async def update_subcategory(
         slug: Optional[str] = Form(None),
         category_id: Optional[int] = Form(None),
         brand_id: Optional[int] = Form(None),
-        db: Session = Depends(database.get_db)
+        db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin)
 ):
     try:
         db_subcategory = crud.get_subcategory_by_id(db, subcategory_id=subcategory_id)
@@ -143,6 +145,7 @@ async def update_subcategory(
 async def delete_subcategory(
         subcategory_id: int,
         db: Session = Depends(database.get_db),
+        _: dict = Depends(require_admin),
         s3_service: TimeWebS3Service = Depends()
 ):
     try:
