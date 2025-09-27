@@ -86,11 +86,11 @@ class PaginationInfo(BaseModel):
 
 class CategoryPaginatedResponse(BaseModel):
     data: List['Category']
-    pagination: PaginationInfo
+    pagination: Optional[PaginationInfo] = None
 
 class SubcategoryPaginatedResponse(BaseModel):
     data: List['Subcategory']
-    pagination: PaginationInfo
+    pagination: Optional[PaginationInfo] = None
 
 class TagBase(BaseModel):
     name: str

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 from .. import crud, schemas, database
 from ..s3_service import s3_service
 from ..dependencies import require_admin
@@ -36,6 +36,7 @@ async def create_category_with_upload(
 
 @router.get("/", response_model=schemas.CategoryPaginatedResponse)
 def read_categories(
+        search: Optional[str] = Query(None, description="Поисковый запрос"),
         page: int = Query(1, ge=1, description="Номер страницы"),
         limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
         db: Session = Depends(database.get_db)
@@ -44,21 +45,27 @@ def read_categories(
 
         skip = (page - 1) * limit
 
-        categories = crud.get_categories(db, skip=skip, limit=limit)
-
-        total_count = crud.get_categories_count(db)
-
-        total_pages = (total_count + limit - 1) // limit
-
-        return {
-            "data": categories,
-            "pagination": {
-                "current_page": page,
-                "total_pages": total_pages,
-                "limit": limit,
-                "total_items": total_count
+        if search:
+            categories = crud.search_categories(db, search_term=search, skip=skip, limit=limit)
+            return {
+                "data": categories
             }
-        }
+
+        else:
+
+            categories = crud.get_categories(db, skip=skip, limit=limit)
+            total_count = crud.get_categories_count(db)
+            total_pages = (total_count + limit - 1) // limit
+
+            return {
+                "data": categories,
+                "pagination": {
+                    "current_page": page,
+                    "total_pages": total_pages,
+                    "limit": limit,
+                    "total_items": total_count
+                }
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при получении категорий: {str(e)}")

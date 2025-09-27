@@ -47,6 +47,7 @@ async def create_subcategory_with_upload(
 
 @router.get("/", response_model=schemas.SubcategoryPaginatedResponse)
 def read_subcategories(
+        search: Optional[str] = Query(None, description="Поисковый запрос"),
         page: int = Query(1, ge=1, description="Номер страницы"),
         limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
         db: Session = Depends(database.get_db)
@@ -55,21 +56,27 @@ def read_subcategories(
 
         skip = (page - 1) * limit
 
-        subcategories = crud.get_subcategories(db, skip=skip, limit=limit)
-
-        total_count = crud.get_subcategories_count(db)
-
-        total_pages = (total_count + limit - 1) // limit
-
-        return {
-            "data": subcategories,
-            "pagination": {
-                "current_page": page,
-                "total_pages": total_pages,
-                "limit": limit,
-                "total_items": total_count
+        if search:
+            subcategories = crud.search_subcategories(db, search_term=search, skip=skip, limit=limit)
+            return {
+                "data": subcategories,
             }
-        }
+
+        else:
+
+            subcategories = crud.get_subcategories(db, skip=skip, limit=limit)
+            total_count = crud.get_subcategories_count(db)
+            total_pages = (total_count + limit - 1) // limit
+
+            return {
+                "data": subcategories,
+                "pagination": {
+                    "current_page": page,
+                    "total_pages": total_pages,
+                    "limit": limit,
+                    "total_items": total_count
+                }
+            }
 
     except HTTPException as e:
         raise e
