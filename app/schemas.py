@@ -88,6 +88,9 @@ class CategoryPaginatedResponse(BaseModel):
     data: List['Category']
     pagination: PaginationInfo
 
+class SubcategoryPaginatedResponse(BaseModel):
+    data: List['Subcategory']
+    pagination: PaginationInfo
 
 class TagBase(BaseModel):
     name: str

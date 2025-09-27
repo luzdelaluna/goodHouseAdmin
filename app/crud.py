@@ -225,6 +225,9 @@ def delete_category(db: Session, category_id: int):
         db.commit()
     return db_category
 
+def get_subcategories_count(db: Session) -> int:
+    return db.query(models.Subcategory).count()
+
 
 def get_subcategories(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.Subcategory).offset(skip).limit(limit).all()
