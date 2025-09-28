@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from . import database, models
-from .routers import categories, subcategories, products, brands, filters, upload, auth
+from .routers import categories, subcategories, products, brands, filters, upload, auth, tags
 import os
 from dotenv import load_dotenv
 import logging
@@ -87,6 +87,7 @@ app.include_router(products.router)
 app.include_router(brands.router)
 app.include_router(filters.router)
 app.include_router(upload.router)
+app.include_router(tags.router)
 
 
 @app.get("/")
