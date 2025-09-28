@@ -119,7 +119,7 @@ def update_user(db: Session, user_id: int, user_data: schemas.UserUpdate):
 
 def create_refresh_token_db(db: Session, user_id: int):
     db.query(models.RefreshToken).filter(
-        models.RefreshToken.expires_at < datetime.utcnow()
+        models.RefreshToken.user_id == user_id
     ).delete()
 
     token = auth.generate_refresh_token()
@@ -174,10 +174,12 @@ def get_category_by_id(db: Session, category_id: int):
 def get_category_by_slug(db: Session, slug: str):
     return db.query(models.Category).filter(models.Category.slug == slug).first()
 
+
 def search_categories(db: Session, search_term: str, skip: int = 0, limit: int = 100):
     return db.query(models.Category).filter(
         models.Category.text.ilike(f"%{search_term}%")
     ).offset(skip).limit(limit).all()
+
 
 def create_category(db: Session, category: schemas.CategoryCreate):
     base_slug = category.slug
@@ -229,6 +231,7 @@ def delete_category(db: Session, category_id: int):
         db.commit()
     return db_category
 
+
 def get_subcategories_count(db: Session) -> int:
     return db.query(models.Subcategory).count()
 
@@ -248,12 +251,14 @@ def get_subcategory_by_slug(db: Session, slug: str):
 def get_products_count_by_subcategory(db: Session, subcategory_id: int) -> int:
     return db.query(models.Product).filter(models.Product.subcategory_id == subcategory_id).count()
 
+
 def search_subcategories(db: Session, search_term: str, skip: int = 0, limit: int = 100):
     return db.query(models.Subcategory).options(
         joinedload(models.Subcategory.category)
     ).filter(
         models.Subcategory.text.ilike(f"%{search_term}%")
     ).offset(skip).limit(limit).all()
+
 
 def create_subcategory(db: Session, subcategory: schemas.SubcategoryCreate):
     db_subcategory = models.Subcategory(**subcategory.dict())
