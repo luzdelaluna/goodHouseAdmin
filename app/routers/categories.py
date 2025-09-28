@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional, List
-from .. import crud, schemas, database
-from ..s3_service import s3_service
+from .. import crud, schemas, database, models
+from ..s3_service import s3_service, TimeWebS3Service
 from ..dependencies import require_admin
 
 router = APIRouter(prefix="/categories", tags=["categories"])
@@ -171,19 +171,50 @@ async def update_category(
 
 
 @router.delete("/{category_id}")
-def delete_category(
+async def delete_category(
         category_id: int,
         db: Session = Depends(database.get_db),
-        _: dict = Depends(require_admin)
+        _: dict = Depends(require_admin),
+        s3_service: TimeWebS3Service = Depends()
 ):
     try:
-        category = crud.get_category_by_id(db, category_id=category_id)
+
+        category = db.query(models.Category).options(
+            joinedload(models.Category.subcategories).joinedload(models.Subcategory.products)
+        ).filter(models.Category.id == category_id).first()
+
         if category is None:
             raise HTTPException(status_code=404, detail="Category not found")
 
-        if category.icon:
-            s3_service.delete_file(category.icon)
+        total_products_deleted = 0
+        total_subcategories_deleted = len(category.subcategories)
 
-        return crud.delete_category(db=db, category_id=category_id)
+        for subcategory in category.subcategories:
+
+            for product in subcategory.products:
+                if product.image:
+                    await s3_service.delete_file(product.image)
+                total_products_deleted += 1
+
+            if subcategory.image:
+                await s3_service.delete_file(subcategory.image)
+
+        if category.icon:
+            await s3_service.delete_file(category.icon)
+
+        db.delete(category)
+        db.commit()
+
+        return {
+            "message": f"Category deleted successfully with {total_subcategories_deleted} subcategories and {total_products_deleted} products",
+            "subcategories_deleted": total_subcategories_deleted,
+            "products_deleted": total_products_deleted
+        }
+
     except HTTPException as e:
+        db.rollback()
         raise e
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting category {category_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
