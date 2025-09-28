@@ -88,13 +88,28 @@ class CategoryPaginatedResponse(BaseModel):
     data: List['Category']
     pagination: Optional[PaginationInfo] = None
 
+
 class SubcategoryPaginatedResponse(BaseModel):
     data: List['Subcategory']
     pagination: Optional[PaginationInfo] = None
 
+
 class TagBase(BaseModel):
     name: str
     value: Optional[str] = None
+
+
+class TagResponse(TagBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagPaginatedResponse(BaseModel):
+    data: List[TagResponse]
+    pagination: PaginationInfo
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TagCreate(TagBase):
@@ -105,12 +120,6 @@ class TagUpdate(BaseModel):
     name: Optional[str] = None
     value: Optional[str] = None
     color: Optional[str] = None
-
-
-class TagResponse(TagBase):
-    id: int
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class CharacteristicBase(BaseModel):
