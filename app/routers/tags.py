@@ -18,14 +18,33 @@ def create_tag(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/", response_model=List[schemas.TagResponse])
+@router.get("/", response_model=schemas.TagPaginatedResponse)
 def read_tags(
-        skip: int = 0,
-        limit: int = 100,
+        page: int = Query(1, ge=1, description="Номер страницы"),
+        limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
         db: Session = Depends(database.get_db)
 ):
-    tags = crud.get_all_tags(db, skip=skip, limit=limit)
-    return tags
+    try:
+        skip = (page - 1) * limit
+
+        tags = crud.get_all_tags(db, skip=skip, limit=limit)
+
+        total_count = crud.get_tags_count(db)
+
+        total_pages = (total_count + limit - 1) // limit if total_count > 0 else 1
+
+        return {
+            "data": tags,
+            "pagination": {
+                "current_page": page,
+                "total_pages": total_pages,
+                "limit": limit,
+                "total_items": total_count
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении тегов: {str(e)}")
 
 
 @router.get("/{tag_id}", response_model=schemas.TagResponse)

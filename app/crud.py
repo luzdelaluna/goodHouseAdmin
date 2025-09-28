@@ -735,6 +735,9 @@ def set_product_tags(db: Session, product_id: int, tag_ids: List[int]):
     product = add_tags_to_product(db, product_id, tag_ids)
     return product
 
+def get_tags_count(db: Session) -> int:
+    return db.query(models.Tag).count()
+
 
 def create_characteristic(db: Session, characteristic: schemas.CharacteristicCreate):
     db_characteristic = models.Characteristic(**characteristic.dict())
