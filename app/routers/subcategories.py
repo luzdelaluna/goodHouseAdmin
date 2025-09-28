@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from .. import crud, schemas, database, models
 from ..s3_service import s3_service, TimeWebS3Service
@@ -47,6 +47,7 @@ async def create_subcategory_with_upload(
 
 @router.get("/", response_model=schemas.SubcategoryPaginatedResponse)
 def read_subcategories(
+        search: Optional[str] = Query(None, description="Поисковый запрос"),
         page: int = Query(1, ge=1, description="Номер страницы"),
         limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
         db: Session = Depends(database.get_db)
@@ -55,21 +56,27 @@ def read_subcategories(
 
         skip = (page - 1) * limit
 
-        subcategories = crud.get_subcategories(db, skip=skip, limit=limit)
-
-        total_count = crud.get_subcategories_count(db)
-
-        total_pages = (total_count + limit - 1) // limit
-
-        return {
-            "data": subcategories,
-            "pagination": {
-                "current_page": page,
-                "total_pages": total_pages,
-                "limit": limit,
-                "total_items": total_count
+        if search:
+            subcategories = crud.search_subcategories(db, search_term=search, skip=skip, limit=limit)
+            return {
+                "data": subcategories,
             }
-        }
+
+        else:
+
+            subcategories = crud.get_subcategories(db, skip=skip, limit=limit)
+            total_count = crud.get_subcategories_count(db)
+            total_pages = (total_count + limit - 1) // limit
+
+            return {
+                "data": subcategories,
+                "pagination": {
+                    "current_page": page,
+                    "total_pages": total_pages,
+                    "limit": limit,
+                    "total_items": total_count
+                }
+            }
 
     except HTTPException as e:
         raise e
@@ -170,25 +177,41 @@ async def delete_subcategory(
         s3_service: TimeWebS3Service = Depends()
 ):
     try:
-        subcategory = crud.get_subcategory_by_id(db, subcategory_id=subcategory_id)
+
+        subcategory = db.query(models.Subcategory).options(
+            joinedload(models.Subcategory.products)
+        ).filter(models.Subcategory.id == subcategory_id).first()
+
         if subcategory is None:
             raise HTTPException(status_code=404, detail="Subcategory not found")
 
-        products_count = crud.get_products_count_by_subcategory(db, subcategory_id=subcategory_id)
-        if products_count > 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete subcategory with {products_count} associated products"
-            )
+        products_count = len(subcategory.products) if subcategory.products else 0
+
+        for product in subcategory.products:
+            if product and product.image:
+                try:
+                    await s3_service.delete_file(product.image)
+                except Exception as img_error:
+                    print(f"Warning: Could not delete product image {product.image}: {img_error}")
 
         if subcategory.image:
-            await s3_service.delete_file(subcategory.image)
+            try:
+                await s3_service.delete_file(subcategory.image)
+            except Exception as img_error:
+                print(f"Warning: Could not delete subcategory image {subcategory.image}: {img_error}")
 
-        return crud.delete_subcategory(db=db, subcategory_id=subcategory_id)
+        db.delete(subcategory)
+        db.commit()
+
+        return {
+            "message": f"Subcategory deleted successfully with {products_count} associated products",
+            "products_deleted": products_count
+        }
 
     except HTTPException as e:
+        db.rollback()
         raise e
     except Exception as e:
-
+        db.rollback()
         print(f"Error deleting subcategory {subcategory_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
