@@ -76,6 +76,12 @@ class TokenData(BaseModel):
     user_id: int
     role: UserRole
 
+class PaginatedResponse(BaseModel):
+    items: List
+    total: int
+    page: int
+    size: int
+    pages: int
 
 class PaginationInfo(BaseModel):
     current_page: int
@@ -92,7 +98,6 @@ class CategoryPaginatedResponse(BaseModel):
 class SubcategoryPaginatedResponse(BaseModel):
     data: List['Subcategory']
     pagination: Optional[PaginationInfo] = None
-
 
 class TagBase(BaseModel):
     name: str
@@ -122,27 +127,69 @@ class TagUpdate(BaseModel):
     color: Optional[str] = None
 
 
-class CharacteristicBase(BaseModel):
-    filter_value: str
-    filter_label: str
+class CharacteristicItemBase(BaseModel):
+    name: str
     value: str
-    label: str
+    order_index: int = 0
+    is_active: bool = True
 
 
-class CharacteristicCreate(CharacteristicBase):
+class CharacteristicItemCreate(CharacteristicItemBase):
     pass
 
 
-class Characteristic(CharacteristicBase):
+class CharacteristicItem(CharacteristicItemBase):
     id: int
+    characteristic_id: int
+    created_at: datetime
 
     class Config:
         from_attributes = True
 
 
+class CharacteristicBase(BaseModel):
+    name: str
+    value: str
+    slug: Optional[str] = None
+    order_index: int = 0
+    is_active: bool = True
+
+
+class CharacteristicCreate(CharacteristicBase):
+    items: List[CharacteristicItemCreate] = []
+
+
+class CharacteristicUpdate(BaseModel):
+    name: Optional[str] = None
+    value: Optional[str] = None
+    slug: Optional[str] = None
+    order_index: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class Characteristic(CharacteristicBase):
+    id: int
+    items: List[CharacteristicItem] = []
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class CharacteristicPaginatedResponse(BaseModel):
+    items: List['Characteristic']
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
 class FilterItemBase(BaseModel):
     value: str
     label: str
+    color: Optional[str] = None
+    order_index: int = 0
+    is_active: bool = True
 
 
 class FilterItemCreate(FilterItemBase):
@@ -152,58 +199,37 @@ class FilterItemCreate(FilterItemBase):
 class FilterItem(FilterItemBase):
     id: int
     filter_id: int
+    created_at: datetime
 
     class Config:
         from_attributes = True
 
 
 class FilterBase(BaseModel):
-    image: Optional[str] = None
-    text: str
-    status: bool = True
-    items: List[FilterItem] = []
-
-    @field_validator('image')
-    def validate_image_url(cls, v):
-        if v and not v.startswith(('http://', 'https://')):
-            raise ValueError('Image must be a valid URL or None')
-        return v
+    label: str
+    value: str
+    slug: str
+    order_index: int = 0
+    is_active: bool = True
 
 
 class FilterCreate(FilterBase):
-    category_id: int
     items: List[FilterItemCreate] = []
 
 
-class FilterUpdate(FilterBase):
-    image: Optional[str] = None
-    text: Optional[str] = None
-    status: Optional[bool] = None
-    items: Optional[List[FilterItemCreate]] = None
+class FilterUpdate(BaseModel):
+    label: Optional[str] = None
+    value: Optional[str] = None
+    slug: Optional[str] = None
+    order_index: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 class Filter(FilterBase):
     id: int
-    category_id: int
     items: List[FilterItem] = []
-
-    class Config:
-        from_attributes = True
-
-
-class CharacteristicBase(BaseModel):
-    filter_value: str
-    filter_label: str
-    value: str
-    label: str
-
-
-class CharacteristicCreate(CharacteristicBase):
-    pass
-
-
-class Characteristic(CharacteristicBase):
-    id: int
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -239,7 +265,6 @@ class CategoryCreate(CategoryBase):
 class Category(CategoryBase):
     id: int
     slug: str
-    filters: List[Filter] = []
 
     class Config:
         from_attributes = True
@@ -425,7 +450,7 @@ class Product(ProductBase):
     small_description: Optional[str] = None
     full_description: Optional[str] = None
     tags: List['TagResponse'] = []
-    characteristics: List[Characteristic] = []
+    characteristics: List[CharacteristicBase] = []
     images: List[dict] = []
 
     class Config:
@@ -501,13 +526,6 @@ class ProductDetail(Product):
     similar_products: List[Product] = []
     additional_products: List[dict] = []
 
-
-class PaginatedResponse(BaseModel):
-    items: List
-    total: int
-    page: int
-    size: int
-    pages: int
 
 
 class ProductWarehouseBase(BaseModel):

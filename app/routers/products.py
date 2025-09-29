@@ -7,7 +7,7 @@ from ..s3_service import s3_service
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-@router.post("/", response_model=schemas.ProductResponse)
+@router.post("/", response_model=schemas.ProductResponse, operation_id="create_product")
 async def create_product_with_upload(
         text: str = Form(...),
         price: float = Form(...),
@@ -69,7 +69,7 @@ async def create_product_with_upload(
         raise HTTPException(status_code=500, detail=f"Error creating product: {str(e)}")
 
 
-@router.get("/filter/")
+@router.get("/filter/", operation_id="get_filtered_products")
 def get_filtered_products(
         subcategory_id: int = Query(...),
         db: Session = Depends(database.get_db)
@@ -80,12 +80,12 @@ def get_filtered_products(
     return products
 
 
-@router.get("/filters/{subcategory_id}")
+@router.get("/filters/{subcategory_id}", operation_id="get_available_filters_for_subcategory")
 def get_available_filters(subcategory_id: int, db: Session = Depends(database.get_db)):
     return crud.get_filters_for_subcategory(db, subcategory_id)
 
 
-@router.get("/", response_model=schemas.PaginatedResponse)
+@router.get("/", response_model=schemas.PaginatedResponse, operation_id="get_products_paginated")
 def read_products(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
     try:
         products = crud.get_products(db, skip=skip, limit=limit)
@@ -101,7 +101,7 @@ def read_products(skip: int = 0, limit: int = 100, db: Session = Depends(databas
         raise e
 
 
-@router.get("/{slug}", response_model=schemas.ProductDetail)
+@router.get("/{slug}", response_model=schemas.ProductDetail, operation_id="get_product_by_id")
 def read_product(slug: str, db: Session = Depends(database.get_db)):
     try:
         product = crud.get_product_by_slug(db, slug=slug)
@@ -122,7 +122,7 @@ def read_product(slug: str, db: Session = Depends(database.get_db)):
         raise e
 
 
-@router.get("/slug/{slug}", response_model=schemas.ProductDetail)
+@router.get("/slug/{slug}", response_model=schemas.ProductDetail, operation_id="get_product_by_slug")
 def read_product_by_slug(slug: str, db: Session = Depends(database.get_db)):
     try:
         product = crud.get_product_by_slug(db, slug=slug)
@@ -143,7 +143,7 @@ def read_product_by_slug(slug: str, db: Session = Depends(database.get_db)):
         raise e
 
 
-@router.patch("/{product_id}", response_model=schemas.Product)
+@router.patch("/{product_id}", response_model=schemas.Product, operation_id="update_product")
 async def update_product(
         product_id: int,
         text: Optional[str] = Form(None),
@@ -216,7 +216,7 @@ async def update_product(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/{product_id}")
+@router.delete("/{product_id}", operation_id="delete_product")
 def delete_product(
         product_id: int,
         db: Session = Depends(database.get_db),
