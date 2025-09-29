@@ -1,6 +1,7 @@
-from typing import List
+from typing import List, Optional
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
+from text_unidecode import unidecode
 from . import models, schemas, auth
 from datetime import datetime, timedelta
 import random
@@ -377,36 +378,6 @@ def get_product_by_article(db: Session, article: int):
     return db.query(models.Product).filter(models.Product.article == article).first()
 
 
-def get_products_with_filters(
-        db: Session,
-        subcategory_id: int,
-        filters: dict[str, List[str]]
-):
-    query = db.query(models.Product).filter(
-        models.Product.subcategory_id == subcategory_id
-    )
-
-    for filter_value, selected_values in filters.items():
-        if selected_values:
-            query = query.join(models.Product.characteristics).join(models.Characteristic.filter_item).join(
-                models.FilterItem.filter).filter(
-                models.Filter.value == filter_value,
-                models.FilterItem.value.in_(selected_values)
-            )
-
-    return query.all()
-
-
-def get_filters_for_subcategory(db: Session, subcategory_id: int):
-    return db.query(models.Filter).distinct().join(
-        models.Filter.characteristics
-    ).join(
-        models.Characteristic.product
-    ).filter(
-        models.Product.subcategory_id == subcategory_id
-    ).all()
-
-
 def create_product(db: Session, product: schemas.ProductCreate):
     import random
 
@@ -541,40 +512,6 @@ def get_products_by_brand(db: Session, brand_id: int, skip: int = 0, limit: int 
 
 def count_products_by_brand(db: Session, brand_id: int):
     return db.query(func.count(models.Product.id)).filter(models.Product.brand_id == brand_id).scalar()
-
-
-def get_filters(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Filter).offset(skip).limit(limit).all()
-
-
-def get_filter_by_id(db: Session, filter_id: int):
-    return db.query(models.Filter).filter(models.Filter.id == filter_id).first()
-
-
-def create_filter(db: Session, filter: schemas.FilterCreate):
-    db_filter = models.Filter(**filter.dict())
-    db.add(db_filter)
-    db.commit()
-    db.refresh(db_filter)
-    return db_filter
-
-
-def update_filter(db: Session, filter_id: int, filter: schemas.FilterCreate):
-    db_filter = db.query(models.Filter).filter(models.Filter.id == filter_id).first()
-    if db_filter:
-        for key, value in filter.dict().items():
-            setattr(db_filter, key, value)
-        db.commit()
-        db.refresh(db_filter)
-    return db_filter
-
-
-def delete_filter(db: Session, filter_id: int):
-    db_filter = db.query(models.Filter).filter(models.Filter.id == filter_id).first()
-    if db_filter:
-        db.delete(db_filter)
-        db.commit()
-    return db_filter
 
 
 def generate_tag_value(name: str) -> str:
@@ -735,13 +672,211 @@ def set_product_tags(db: Session, product_id: int, tag_ids: List[int]):
     product = add_tags_to_product(db, product_id, tag_ids)
     return product
 
+
 def get_tags_count(db: Session) -> int:
     return db.query(models.Tag).count()
 
 
-def create_characteristic(db: Session, characteristic: schemas.CharacteristicCreate):
-    db_characteristic = models.Characteristic(**characteristic.dict())
+def get_characteristics_paginated(
+        db: Session,
+        page: int = 1,
+        size: int = 10,
+        is_active: Optional[bool] = None
+):
+    query = db.query(models.Characteristic)
+
+    if is_active is not None:
+        query = query.filter(models.Characteristic.is_active == is_active)
+
+    total = query.count()
+
+    offset = (page - 1) * size
+
+    items = query.offset(offset).limit(size).all()
+
+    return items, total
+
+
+def get_characteristic(db: Session, characteristic_id: int):
+    return db.query(models.Characteristic).filter(models.Characteristic.id == characteristic_id).first()
+
+
+def get_characteristic_by_value(db: Session, value: str):
+    return db.query(models.Characteristic).filter(models.Characteristic.value == value).first()
+
+
+def generate_slug(text: str) -> str:
+    text = unidecode(text)
+
+    slug = re.sub(r'[^\w\s-]', '', text.lower())
+    slug = re.sub(r'[-\s]+', '-', slug).strip('-_')
+    return slug
+
+
+def create_characteristic(db: Session, characteristic_data: schemas.CharacteristicCreate):
+    if not characteristic_data.slug:
+        slug = generate_slug(characteristic_data.name)
+    else:
+        slug = characteristic_data.slug
+
+    final_slug = slug
+    counter = 1
+    while db.query(models.Characteristic).filter(models.Characteristic.slug == final_slug).first():
+        final_slug = f"{slug}-{counter}"
+        counter += 1
+
+    db_characteristic = models.Characteristic(
+        name=characteristic_data.name,
+        value=characteristic_data.value,
+        slug=final_slug,
+        order_index=characteristic_data.order_index,
+        is_active=characteristic_data.is_active
+    )
     db.add(db_characteristic)
     db.commit()
     db.refresh(db_characteristic)
+
+    for item_data in characteristic_data.items:
+        db_item = models.CharacteristicItem(
+            characteristic_id=db_characteristic.id,
+            name=item_data.name,
+            value=item_data.value,
+            order_index=item_data.order_index,
+            is_active=item_data.is_active
+        )
+        db.add(db_item)
+
+    db.commit()
+    db.refresh(db_characteristic)
     return db_characteristic
+
+
+def update_characteristic(db: Session, characteristic_id: int, characteristic_data: schemas.CharacteristicUpdate):
+    db_characteristic = db.query(models.Characteristic).filter(models.Characteristic.id == characteristic_id).first()
+    if db_characteristic:
+        update_data = characteristic_data.dict(exclude_unset=True)
+
+        if 'name' in update_data and 'slug' not in update_data:
+            new_slug = generate_slug(update_data['name'])
+
+            final_slug = new_slug
+            counter = 1
+            while db.query(models.Characteristic).filter(
+                    models.Characteristic.slug == final_slug,
+                    models.Characteristic.id != characteristic_id
+            ).first():
+                final_slug = f"{new_slug}-{counter}"
+                counter += 1
+            update_data['slug'] = final_slug
+
+
+        elif 'slug' in update_data and update_data['slug']:
+            final_slug = update_data['slug']
+            counter = 1
+            while db.query(models.Characteristic).filter(
+                    models.Characteristic.slug == final_slug,
+                    models.Characteristic.id != characteristic_id
+            ).first():
+                final_slug = f"{update_data['slug']}-{counter}"
+                counter += 1
+            update_data['slug'] = final_slug
+
+        for field, value in update_data.items():
+            setattr(db_characteristic, field, value)
+
+        db.commit()
+        db.refresh(db_characteristic)
+    return db_characteristic
+
+
+def delete_characteristic(db: Session, characteristic_id: int):
+    db_characteristic = db.query(models.Characteristic).filter(models.Characteristic.id == characteristic_id).first()
+    if db_characteristic:
+        db.delete(db_characteristic)
+        db.commit()
+    return db_characteristic
+
+
+def generate_slug_from_name(name: str) -> str:
+    try:
+
+        transliterated = transliterate.translit(name, reversed=True)
+    except:
+        transliterated = name
+
+    slug = re.sub(r'[^a-zA-Z0-9]+', '-', transliterated).lower().strip('-')
+
+    slug = re.sub(r'-{2,}', '-', slug)
+
+    return slug
+
+
+def get_filter(db: Session, filter_id: int):
+    return db.query(models.Filter).filter(models.Filter.id == filter_id).first()
+
+
+def get_filter_by_value(db: Session, value: str):
+    return db.query(models.Filter).filter(models.Filter.value == value).first()
+
+
+def get_filters(db: Session, skip: int = 0, limit: int = 100, is_active: Optional[bool] = None):
+    query = db.query(models.Filter)
+    if is_active is not None:
+        query = query.filter(models.Filter.is_active == is_active)
+    return query.offset(skip).limit(limit).all()
+
+
+def create_filter(db: Session, filter_data: schemas.FilterCreate):
+    db_filter = models.Filter(
+        label=filter_data.label,
+        value=filter_data.value,
+        slug=filter_data.slug,
+        order_index=filter_data.order_index,
+        is_active=filter_data.is_active
+    )
+    db.add(db_filter)
+    db.commit()
+    db.refresh(db_filter)
+
+    for item_data in filter_data.items:
+        db_item = models.FilterItem(
+            filter_id=db_filter.id,
+            value=item_data.value,
+            label=item_data.label,
+            color=item_data.color,
+            order_index=item_data.order_index,
+            is_active=item_data.is_active
+        )
+        db.add(db_item)
+
+    db.commit()
+    db.refresh(db_filter)
+    return db_filter
+
+
+def update_filter(db: Session, filter_id: int, filter_data: schemas.FilterUpdate):
+    db_filter = db.query(models.Filter).filter(models.Filter.id == filter_id).first()
+    if db_filter:
+        update_data = filter_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_filter, field, value)
+        db.commit()
+        db.refresh(db_filter)
+    return db_filter
+
+
+def delete_filter(db: Session, filter_id: int):
+    db_filter = db.query(models.Filter).filter(models.Filter.id == filter_id).first()
+    if db_filter:
+        db.delete(db_filter)
+        db.commit()
+    return db_filter
+
+
+# CRUD для FilterItem
+def create_filter_item(db: Session, item_data: schemas.FilterItemCreate, filter_id: int):
+    db_item = models.FilterItem(**item_data.dict(), filter_id=filter_id)
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item

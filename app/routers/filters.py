@@ -1,71 +1,98 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from .. import crud, schemas, database
-from ..models import Filter
-from ..s3_service import s3_service
+from typing import List
 
-router = APIRouter(prefix="/filters", tags=["filters"])
+from app.database import get_db
+from app.models import User, UserRole
+from app import crud, schemas
+from app.auth import get_current_user
+
+router = APIRouter(prefix="/api/admin/filters", tags=["filters"])
+
+
+def check_admin_access(current_user: dict):
+    if current_user["role"] not in [UserRole.SUPERUSER, UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав для выполнения этой операции"
+        )
 
 
 @router.post("/", response_model=schemas.Filter)
-async def create_filter_with_upload(
-        text: str = Form(...),
-        status: bool = Form(True),
-        category_id: int = Form(...),
-        image: Optional[UploadFile] = File(None),
-        db: Session = Depends(database.get_db)
+def create_filter(
+        filter_data: schemas.FilterCreate,
+        db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user)
 ):
-    image_url = None
+        check_admin_access(current_user)
 
-    if image:
-        image_url = await s3_service.upload_file(image, "filters")
+        existing_filter = crud.get_filter_by_value(db, value=filter_data.value)
+        if existing_filter:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Фильтр с таким значением уже существует"
+            )
 
-    filter_data = {
-        "text": text,
-        "status": status,
-        "category_id": category_id,
-        "image": image_url
-    }
-
-    return crud.create_filter(db=db, filter=schemas.FilterCreate(**filter_data))
-
-
-# @router.post("/", response_model=schemas.Filter)
-# def create_filter(filter: schemas.FilterCreate, db: Session = Depends(database.get_db)):
-#     if filter.image and not filter.image.startswith(('http://', 'https://')):
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Image must be a URL. First upload file via POST /upload/image or use /with-upload endpoint"
-#         )
-#     return crud.create_filter(db=db, filter=filter)
+        return crud.create_filter(db, filter_data)
 
 
 @router.get("/", response_model=List[schemas.Filter])
-def read_filters(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
-    filters = crud.get_filters(db, skip=skip, limit=limit)
-    return filters
+def read_filters(
+        skip: int = 0,
+        limit: int = 100,
+        is_active: bool = None,
+        db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user)
+):
+        check_admin_access(current_user)
+        filters = crud.get_filters(db, skip=skip, limit=limit, is_active=is_active)
+        return filters
 
 
 @router.get("/{filter_id}", response_model=schemas.Filter)
-def read_filter(filter_id: int, db: Session = Depends(database.get_db)):
-    filter = crud.get_filter_by_id(db, filter_id=filter_id)
-    if filter is None:
-        raise HTTPException(status_code=404, detail="Filter not found")
-    return filter
+def read_filter(
+        filter_id: int,
+        db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user)
+):
+        check_admin_access(current_user)
+        db_filter = crud.get_filter(db, filter_id=filter_id)
+        if db_filter is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Фильтр не найден"
+            )
+        return db_filter
 
 
 @router.put("/{filter_id}", response_model=schemas.Filter)
-def update_filter(filter_id: int, filter: schemas.FilterCreate, db: Session = Depends(database.get_db)):
-    return crud.update_filter(db=db, filter_id=filter_id, filter=filter)
+def update_filter(
+        filter_id: int,
+        filter_data: schemas.FilterUpdate,
+        db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user)
+):
+        check_admin_access(current_user)
+        db_filter = crud.update_filter(db, filter_id=filter_id, filter_data=filter_data)
+        if db_filter is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Фильтр не найден"
+            )
+        return db_filter
 
 
 @router.delete("/{filter_id}")
-def delete_filter(filter_id: int, db: Session = Depends(database.get_db)):
-    return crud.delete_filter(db=db, filter_id=filter_id)
-
-
-@router.get("/category/{category_id}", response_model=List[schemas.Filter])
-def read_filters_by_category(category_id: int, db: Session = Depends(database.get_db)):
-    filters = db.query(Filter).filter(Filter.category_id == category_id).all()
-    return filters
+def delete_filter(
+        filter_id: int,
+        db: Session = Depends(get_db),
+        current_user: dict = Depends(get_current_user)
+):
+        check_admin_access(current_user)
+        db_filter = crud.delete_filter(db, filter_id=filter_id)
+        if db_filter is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Фильтр не найден"
+            )
+        return {"message": "Фильтр успешно удален"}

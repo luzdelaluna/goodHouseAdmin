@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Table, Text, Enum as SQLEnum, DateTime, \
     UniqueConstraint
 from sqlalchemy.orm import relationship
@@ -13,6 +15,88 @@ product_similar = Table(
 )
 
 
+class Characteristic(Base):
+    __tablename__ = "characteristics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    value = Column(String(100), nullable=False)
+    slug = Column(String(100), unique=True, index=True, nullable=True)
+    order_index = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    items = relationship("CharacteristicItem", back_populates="characteristic", cascade="all, delete-orphan")
+
+
+class CharacteristicItem(Base):
+    __tablename__ = "characteristic_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    characteristic_id = Column(Integer, ForeignKey("characteristics.id"))
+    name = Column(String(255), nullable=False)  # "Страна"
+    value = Column(String(255), nullable=False)  # "Россия"
+    order_index = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    characteristic = relationship("Characteristic", back_populates="items")
+
+
+class CharacteristicTemplate(Base):
+    __tablename__ = "characteristic_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    description = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    products = relationship("Product", secondary="product_characteristic_templates",
+                            back_populates="characteristic_templates")
+
+
+class ProductCharacteristicTemplate(Base):
+    __tablename__ = "product_characteristic_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    template_id = Column(Integer, ForeignKey("characteristic_templates.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint('product_id', 'template_id', name='_product_template_uc'),)
+
+
+class Filter(Base):
+    __tablename__ = "filters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    label = Column(String(255), nullable=False)
+    value = Column(String(100), unique=True, index=True, nullable=False)
+    slug = Column(String(100), unique=True, index=True)
+    order_index = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    items = relationship("FilterItem", back_populates="filter", cascade="all, delete-orphan")
+
+
+class FilterItem(Base):
+    __tablename__ = "filter_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filter_id = Column(Integer, ForeignKey("filters.id"))
+    value = Column(String(100), nullable=False)
+    label = Column(String(255), nullable=False)
+    order_index = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    filter = relationship("Filter", back_populates="items")
+
+
 class Category(Base):
     __tablename__ = "categories"
 
@@ -22,48 +106,6 @@ class Category(Base):
     slug = Column(String, unique=True, index=True)
 
     subcategories = relationship("Subcategory", back_populates="category")
-    filters = relationship("Filter", back_populates="category")
-
-
-class Filter(Base):
-    __tablename__ = "filters"
-
-    id = Column(Integer, primary_key=True, index=True)
-    image = Column(String, nullable=True)
-    text = Column(String, index=True)
-    status = Column(Boolean, default=True)
-    category_id = Column(Integer, ForeignKey("categories.id"))
-
-    value = Column(String, unique=True, index=True)
-
-    category = relationship("Category", back_populates="filters")
-    items = relationship("FilterItem", back_populates="filter", cascade="all, delete-orphan")
-    characteristics = relationship("Characteristic", back_populates="filter")
-
-
-class FilterItem(Base):
-    __tablename__ = "filter_items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    filter_id = Column(Integer, ForeignKey("filters.id"))
-    value = Column(String)
-    label = Column(String)
-
-    filter = relationship("Filter", back_populates="items")
-    characteristics = relationship("Characteristic", back_populates="filter_item")
-
-
-class Characteristic(Base):
-    __tablename__ = "characteristics"
-
-    id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"))
-    filter_id = Column(Integer, ForeignKey("filters.id"))
-    filter_item_id = Column(Integer, ForeignKey("filter_items.id"))
-
-    product = relationship("Product", back_populates="characteristics")
-    filter = relationship("Filter", back_populates="characteristics")
-    filter_item = relationship("FilterItem", back_populates="characteristics")
 
 
 class Subcategory(Base):
@@ -99,6 +141,7 @@ class ProductTag(Base):
     tag_id = Column(Integer, ForeignKey("tags.id"))
 
     __table_args__ = (UniqueConstraint('product_id', 'tag_id', name='_product_tag_uc'),)
+
 
 class Brand(Base):
     __tablename__ = "brands"
@@ -141,7 +184,8 @@ class Product(Base):
     documents = relationship("Document", back_populates="product")
     images = relationship("ProductImage", back_populates="product")
     additional_products = relationship("AdditionalProduct", back_populates="product")
-    characteristics = relationship("Characteristic", back_populates="product")
+    characteristic_templates = relationship("CharacteristicTemplate", secondary="product_characteristic_templates",
+                                            back_populates="products")
 
 
 class ProductWarehouse(Base):
@@ -192,11 +236,6 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
 
 
-class UserRole(str, enum.Enum):
-    SUPERUSER = "superuser"
-    ADMIN = "admin"
-
-
 class User(Base):
     __tablename__ = "users"
 
@@ -224,5 +263,3 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="refresh_tokens")
-
-
