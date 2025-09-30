@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from .. import crud, schemas, database
@@ -28,35 +28,55 @@ async def create_brand_with_upload(
         raise e
 
 
-@router.get("/", response_model=List[schemas.Brand])
-def read_brands(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
+@router.get("/", response_model=schemas.PaginatedResponse)
+def read_brands(
+        page: int = Query(1, ge=1, description="Page number"),
+        size: int = Query(20, ge=1, le=100, description="Page size"),
+        db: Session = Depends(database.get_db)
+):
     try:
-        brands = crud.get_brands(db, skip=skip, limit=limit)
-        return brands
+        skip = (page - 1) * size
+        brands = crud.get_brands(db, skip=skip, limit=size)
+        total = crud.count_brands(db)
+
+        brands_schemas = [schemas.Brand.from_orm(brand) for brand in brands]
+
+        return {
+            "items": brands_schemas,
+            "total": total,
+            "page": page,
+            "size": size,
+            "pages": (total + size - 1) // size if size > 0 else 1
+        }
     except HTTPException as e:
         raise e
 
 
 @router.get("/{brand_id}/products", response_model=schemas.PaginatedResponse)
-def read_brand_products(brand_id: int, skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
+def read_brand_products(
+        brand_id: int,
+        page: int = Query(1, ge=1, description="Номер страницы"),
+        size: int = Query(20, ge=1, le=100, description="Размер страницы"),
+        db: Session = Depends(database.get_db)
+):
     try:
         brand = crud.get_brand_by_id(db, brand_id=brand_id)
         if brand is None:
             raise HTTPException(status_code=404, detail="Brand not found")
 
-        products = crud.get_products_by_brand(db, brand_id=brand_id, skip=skip, limit=limit)
+        skip = (page - 1) * size
+        products = crud.get_products_by_brand(db, brand_id=brand_id, skip=skip, limit=size)
         total = crud.count_products_by_brand(db, brand_id=brand_id)
 
         return {
             "items": products,
             "total": total,
-            "page": skip // limit + 1,
-            "size": limit,
-            "pages": (total + limit - 1) // limit
+            "page": page,
+            "size": size,
+            "pages": (total + size - 1) // size if size > 0 else 1
         }
     except HTTPException as e:
         raise e
-
 
 
 @router.put("/{brand_id}", response_model=schemas.Brand)

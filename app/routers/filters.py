@@ -7,7 +7,7 @@ from app.models import User, UserRole
 from app import crud, schemas
 from app.auth import get_current_user
 
-router = APIRouter(prefix="/api/admin/filters", tags=["filters"])
+router = APIRouter(prefix="/filters", tags=["filters"])
 
 
 def check_admin_access(current_user: dict):

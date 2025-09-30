@@ -6,7 +6,7 @@ from app.models import UserRole
 from app import crud, schemas
 from app.auth import get_current_user
 
-router = APIRouter(prefix="/api/admin/characteristics", tags=["characteristics"])
+router = APIRouter(prefix="/characteristics", tags=["characteristics"])
 
 
 def check_admin_access(current_user: dict):

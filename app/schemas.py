@@ -76,12 +76,14 @@ class TokenData(BaseModel):
     user_id: int
     role: UserRole
 
+
 class PaginatedResponse(BaseModel):
     items: List
     total: int
     page: int
     size: int
     pages: int
+
 
 class PaginationInfo(BaseModel):
     current_page: int
@@ -98,6 +100,7 @@ class CategoryPaginatedResponse(BaseModel):
 class SubcategoryPaginatedResponse(BaseModel):
     data: List['Subcategory']
     pagination: Optional[PaginationInfo] = None
+
 
 class TagBase(BaseModel):
     name: str
@@ -175,6 +178,7 @@ class Characteristic(CharacteristicBase):
 
     class Config:
         from_attributes = True
+
 
 class CharacteristicPaginatedResponse(BaseModel):
     items: List['Characteristic']
@@ -382,7 +386,6 @@ class SubcategoryUpdate(BaseModel):
 
 
 class ProductBase(BaseModel):
-    images: List[str]
     text: str
     article: Optional[int] = Field(default=None, description="Автогенерация, если не указан")
     price: float
@@ -390,23 +393,28 @@ class ProductBase(BaseModel):
     slug: Optional[str] = Field(default=None, description="Автогенерация, если не указан")
     subcategory_id: int
     brand_id: Optional[int] = None
-    tag_ids: Optional[List[int]] = []
 
     @field_validator('slug')
     @classmethod
     def validate_slug_format(cls, v):
-        if v is not None:
-            if not re.match(r'^[a-z0-9-]+$', v):
-                raise ValueError('Slug может содержать только латинские буквы, цифры и тире')
-            if '--' in v or v.startswith('-') or v.endswith('-'):
-                raise ValueError('Slug не может содержать двойные тире или тире в начале/конце')
+        if v is None or v == "":
+            return None
+        if not re.match(r'^[a-z0-9-]+$', v):
+            raise ValueError('Slug может содержать только латинские буквы, цифры и тире')
+        if '--' in v or v.startswith('-') or v.endswith('-'):
+            raise ValueError('Slug не может содержать двойные тире или тире в начале/конце')
         return v
 
     @field_validator('article')
     @classmethod
     def validate_article_format(cls, v):
-        if v is not None and v <= 0:
-            raise ValueError('Артикул должен быть положительным числом')
+        if v is not None and v != "":
+            try:
+                article_int = int(v)
+                if article_int <= 0:
+                    raise ValueError('Артикул должен быть положительным числом')
+            except ValueError:
+                raise ValueError('Артикул должен быть числом')
         return v
 
     @model_validator(mode='after')
@@ -420,28 +428,8 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    class ProductCreate(ProductBase):
-        characteristics: List[CharacteristicCreate] = []
-
-    def generate_slugs(self):
-
-        from slugify import slugify
-        import datetime
-        import random
-
-        if self.slug is None:
-            self.slug = slugify(self.text, lowercase=True, word_boundary=True)
-
-        if self.article is None:
-            timestamp = int(datetime.datetime.now().timestamp()) % 100000
-            random_part = random.randint(100, 999)
-            self.article = timestamp * 1000 + random_part
-
-            self.article %= 100000000
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        self.generate_slugs()
+    characteristics: List[CharacteristicCreate] = []
+    images: List[str] = []
 
 
 class Product(ProductBase):
@@ -471,7 +459,7 @@ class ProductResponse(BaseModel):
     brand_id: Optional[int] = None
     images: List[str] = []
     characteristics: List[dict] = []
-    tags: List['TagResponse'] = []
+    tags: List[TagResponse] = []
 
     class Config:
         from_attributes = True
@@ -525,7 +513,6 @@ class ProductDetail(Product):
     images: List[str] = []
     similar_products: List[Product] = []
     additional_products: List[dict] = []
-
 
 
 class ProductWarehouseBase(BaseModel):
