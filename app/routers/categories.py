@@ -179,28 +179,39 @@ async def delete_category(
 ):
     try:
 
-        category = db.query(models.Category).options(
-            joinedload(models.Category.subcategories).joinedload(models.Subcategory.products)
-        ).filter(models.Category.id == category_id).first()
+        category = db.query(models.Category).filter(models.Category.id == category_id).first()
 
         if category is None:
             raise HTTPException(status_code=404, detail="Category not found")
 
-        total_products_deleted = 0
-        total_subcategories_deleted = len(category.subcategories)
+        subcategories = db.query(models.Subcategory).options(
+            joinedload(models.Subcategory.products)
+        ).filter(models.Subcategory.category_id == category_id).all()
 
-        for subcategory in category.subcategories:
+        total_products_deleted = 0
+        total_subcategories_deleted = len(subcategories)
+
+        for subcategory in subcategories:
 
             for product in subcategory.products:
                 if product.image:
-                    await s3_service.delete_file(product.image)
+                    try:
+                        await s3_service.delete_file(product.image)
+                    except Exception as e:
+                        print(f"Error deleting product image {product.image}: {str(e)}")
                 total_products_deleted += 1
 
             if subcategory.image:
-                await s3_service.delete_file(subcategory.image)
+                try:
+                    await s3_service.delete_file(subcategory.image)
+                except Exception as e:
+                    print(f"Error deleting subcategory image {subcategory.image}: {str(e)}")
 
         if category.icon:
-            await s3_service.delete_file(category.icon)
+            try:
+                await s3_service.delete_file(category.icon)
+            except Exception as e:
+                print(f"Error deleting category icon {category.icon}: {str(e)}")
 
         db.delete(category)
         db.commit()
