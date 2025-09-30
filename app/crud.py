@@ -337,7 +337,10 @@ def delete_brand(db: Session, brand_id: int):
 
 
 def get_products(db: Session, skip: int = 0, limit: int = 100):
-    products = db.query(models.Product).offset(skip).limit(limit).all()
+    products = db.query(models.Product).options(
+        joinedload(models.Product.images),
+        joinedload(models.Product.tags)
+    ).offset(skip).limit(limit).all()
 
     products_data = []
     for product in products:
@@ -357,7 +360,8 @@ def get_products(db: Session, skip: int = 0, limit: int = 100):
             "full_description": product.full_description,
             "subcategory_id": product.subcategory_id,
             "brand_id": product.brand_id,
-            "images": [img.image_url for img in images]
+            "images": [img.image_url for img in images],
+            "tags": [{"id": tag.id, "name": tag.name, "value": tag.value} for tag in product.tags]
         }
         products_data.append(product_data)
 
@@ -366,20 +370,74 @@ def get_products(db: Session, skip: int = 0, limit: int = 100):
 
 def get_product_by_id(db: Session, product_id: int):
     return db.query(models.Product).options(
-        joinedload(models.Product.images)
+        joinedload(models.Product.images),
+        joinedload(models.Product.tags),
+        joinedload(models.Product.warehouses),
+        joinedload(models.Product.documents),
+        joinedload(models.Product.additional_products)
     ).filter(models.Product.id == product_id).first()
 
 
 def get_product_by_slug(db: Session, slug: str):
-    return db.query(models.Product).filter(models.Product.slug == slug).first()
+    return db.query(models.Product).options(
+        joinedload(models.Product.images),
+        joinedload(models.Product.tags),
+        joinedload(models.Product.warehouses),
+        joinedload(models.Product.documents),
+        joinedload(models.Product.additional_products)
+    ).filter(models.Product.slug == slug).first()
 
 
 def get_product_by_article(db: Session, article: int):
-    return db.query(models.Product).filter(models.Product.article == article).first()
+    return db.query(models.Product).options(
+        joinedload(models.Product.images),
+        joinedload(models.Product.tags)
+    ).filter(models.Product.article == article).first()
 
 
 def create_product(db: Session, product: schemas.ProductCreate):
-    import random
+    product_data = product.model_dump(exclude={'images'})
+
+    if not product_data.get('slug'):
+        product_data['slug'] = generate_slug(product_data['text'])
+
+    if not product_data.get('article'):
+        import datetime
+        import random
+        timestamp = int(datetime.datetime.now().timestamp()) % 100000
+        random_part = random.randint(100, 999)
+        product_data['article'] = (timestamp * 1000 + random_part) % 100000000
+
+    counter = 1
+    original_slug = product_data['slug']
+    while db.query(models.Product).filter(models.Product.slug == product_data['slug']).first():
+        product_data['slug'] = f"{original_slug}-{counter}"
+        counter += 1
+
+    while db.query(models.Product).filter(models.Product.article == product_data['article']).first():
+        import datetime
+        import random
+        timestamp = int(datetime.datetime.now().timestamp()) % 100000
+        random_part = random.randint(100, 999)
+        product_data['article'] = (timestamp * 1000 + random_part) % 100000000
+
+    db_product = models.Product(**product_data)
+    db.add(db_product)
+    db.commit()
+    db.refresh(db_product)
+
+    if product.images:
+        for index, image_url in enumerate(product.images):
+            product_image = models.ProductImage(
+                image_url=image_url,
+                product_id=db_product.id
+            )
+            db.add(product_image)
+
+        db.commit()
+        db.refresh(db_product)
+
+    return db_product
 
     def generate_numeric_article():
         return random.randint(100000, 999999)
@@ -428,36 +486,6 @@ def create_product(db: Session, product: schemas.ProductCreate):
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
-
-    if hasattr(product, 'images') and product.images:
-        for image_url in product.images:
-            db_image = models.ProductImage(
-                image_url=image_url,
-                product_id=db_product.id
-            )
-            db.add(db_image)
-        db.commit()
-
-    db_images = db.query(models.ProductImage).filter(
-        models.ProductImage.product_id == db_product.id
-    ).all()
-
-    response_data = {
-        "id": db_product.id,
-        "text": db_product.text,
-        "article": db_product.article,
-        "price": db_product.price,
-        "discount": db_product.discount,
-        "slug": db_product.slug,
-        "in_stock": db_product.in_stock,
-        "small_description": db_product.small_description,
-        "full_description": db_product.full_description,
-        "subcategory_id": db_product.subcategory_id,
-        "brand_id": db_product.brand_id,
-        "images": [img.image_url for img in db_images]
-    }
-
-    return schemas.ProductResponse(**response_data)
 
 
 def update_product(db: Session, product_id: int, product_update: schemas.ProductUpdate):
@@ -508,6 +536,18 @@ def delete_product(db: Session, product_id: int):
 
 def get_products_by_brand(db: Session, brand_id: int, skip: int = 0, limit: int = 100):
     return db.query(models.Product).filter(models.Product.brand_id == brand_id).offset(skip).limit(limit).all()
+
+
+def get_brands(db: Session, skip: int = 0, limit: int = 100) -> List[models.Brand]:
+    return db.query(models.Brand).offset(skip).limit(limit).all()
+
+
+def count_brands(db: Session) -> int:
+    return db.query(models.Brand).count()
+
+
+def get_brand_by_id(db: Session, brand_id: int) -> models.Brand:
+    return db.query(models.Brand).filter(models.Brand.id == brand_id).first()
 
 
 def count_products_by_brand(db: Session, brand_id: int):
@@ -873,7 +913,6 @@ def delete_filter(db: Session, filter_id: int):
     return db_filter
 
 
-# CRUD для FilterItem
 def create_filter_item(db: Session, item_data: schemas.FilterItemCreate, filter_id: int):
     db_item = models.FilterItem(**item_data.dict(), filter_id=filter_id)
     db.add(db_item)

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Table, Text, Enum as SQLEnum, DateTime, \
-    UniqueConstraint
+    UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -35,8 +35,8 @@ class CharacteristicItem(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     characteristic_id = Column(Integer, ForeignKey("characteristics.id"))
-    name = Column(String(255), nullable=False)  # "Страна"
-    value = Column(String(255), nullable=False)  # "Россия"
+    name = Column(String(255), nullable=False)
+    value = Column(String(255), nullable=False)
     order_index = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -168,7 +168,8 @@ class Product(Base):
     small_description = Column(Text, nullable=True)
     full_description = Column(Text, nullable=True)
     subcategory_id = Column(Integer, ForeignKey("subcategories.id"))
-    brand_id = Column(Integer, ForeignKey("brands.id"))
+    brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
+    characteristics = Column(JSON, nullable=True)
 
     subcategory = relationship("Subcategory", back_populates="products")
     brand = relationship("Brand", back_populates="products")
@@ -186,6 +187,10 @@ class Product(Base):
     additional_products = relationship("AdditionalProduct", back_populates="product")
     characteristic_templates = relationship("CharacteristicTemplate", secondary="product_characteristic_templates",
                                             back_populates="products")
+
+    @property
+    def image_urls(self):
+        return [img.image_url for img in self.images] if self.images else []
 
 
 class ProductWarehouse(Base):
@@ -213,8 +218,8 @@ class ProductImage(Base):
     __tablename__ = "product_images"
 
     id = Column(Integer, primary_key=True, index=True)
-    image_url = Column(String)
     product_id = Column(Integer, ForeignKey("products.id"))
+    image_url = Column(String)
 
     product = relationship("Product", back_populates="images")
 
