@@ -336,6 +336,128 @@ def delete_brand(db: Session, brand_id: int):
     return db_brand
 
 
+def get_characteristic_templates(db: Session, skip: int = 0, limit: int = 100) -> List[models.CharacteristicTemplate]:
+    """Получить список шаблонов характеристик с пагинацией"""
+    return db.query(models.CharacteristicTemplate).offset(skip).limit(limit).all()
+
+
+def get_characteristic_templates_count(db: Session) -> int:
+    """Получить общее количество шаблонов характеристик"""
+    return db.query(models.CharacteristicTemplate).count()
+
+
+def search_characteristic_templates(db: Session, search_term: str, skip: int = 0, limit: int = 100) -> List[
+    models.CharacteristicTemplate]:
+    """Поиск шаблонов характеристик по названию"""
+    return db.query(models.CharacteristicTemplate).filter(
+        models.CharacteristicTemplate.name.ilike(f"%{search_term}%")
+    ).offset(skip).limit(limit).all()
+
+
+def search_characteristic_templates_count(db: Session, search_term: str) -> int:
+    """Получить количество найденных шаблонов характеристик"""
+    return db.query(models.CharacteristicTemplate).filter(
+        models.CharacteristicTemplate.name.ilike(f"%{search_term}%")
+    ).count()
+
+
+def get_characteristic_template_by_id(db: Session, template_id: int) -> Optional[models.CharacteristicTemplate]:
+    """Получить шаблон характеристик по ID"""
+    return db.query(models.CharacteristicTemplate).filter(
+        models.CharacteristicTemplate.id == template_id
+    ).first()
+
+
+def get_characteristic_template_by_name(db: Session, name: str) -> Optional[models.CharacteristicTemplate]:
+    """Получить шаблон характеристик по названию"""
+    return db.query(models.CharacteristicTemplate).filter(
+        models.CharacteristicTemplate.name == name
+    ).first()
+
+
+def create_characteristic_template(db: Session,
+                                   template: schemas.CharacteristicTemplateCreate) -> models.CharacteristicTemplate:
+    """Создать новый шаблон характеристик"""
+    # Проверка уникальности имени
+    existing_template = get_characteristic_template_by_name(db, template.name)
+    if existing_template:
+        raise ValueError(f"Шаблон с названием '{template.name}' уже существует")
+
+    db_template = models.CharacteristicTemplate(
+        name=template.name,
+        description=template.description
+    )
+    db.add(db_template)
+    db.commit()
+    db.refresh(db_template)
+
+    # Добавление характеристик
+    for char_data in template.characteristics:
+        characteristic = models.CharacteristicItem(
+            name=char_data.name,
+            label=char_data.label,
+            value=char_data.value,
+            template_id=db_template.id
+        )
+        db.add(characteristic)
+
+    db.commit()
+    db.refresh(db_template)
+    return db_template
+
+
+def update_characteristic_template(db: Session, template_id: int,
+                                   template_update: schemas.CharacteristicTemplateUpdate) -> Optional[
+    models.CharacteristicTemplate]:
+    """Обновить шаблон характеристик"""
+    db_template = get_characteristic_template_by_id(db, template_id)
+    if not db_template:
+        return None
+
+    # Проверка уникальности имени (если имя изменено)
+    if template_update.name and template_update.name != db_template.name:
+        existing_template = get_characteristic_template_by_name(db, template_update.name)
+        if existing_template:
+            raise ValueError(f"Шаблон с названием '{template_update.name}' уже существует")
+
+    # Обновление полей
+    update_data = template_update.model_dump(exclude_unset=True, exclude={'characteristics'})
+    for field, value in update_data.items():
+        setattr(db_template, field, value)
+
+    # Обновление характеристик (если переданы)
+    if hasattr(template_update, 'characteristics') and template_update.characteristics is not None:
+        # Удаляем старые характеристики
+        db.query(models.CharacteristicItem).filter(
+            models.CharacteristicItem.template_id == template_id
+        ).delete()
+
+        # Добавляем новые характеристики
+        for char_data in template_update.characteristics:
+            characteristic = models.CharacteristicItem(
+                name=char_data.name,
+                label=char_data.label,
+                value=char_data.value,
+                template_id=db_template.id
+            )
+            db.add(characteristic)
+
+    db.commit()
+    db.refresh(db_template)
+    return db_template
+
+
+def delete_characteristic_template(db: Session, template_id: int) -> bool:
+    """Удалить шаблон характеристик"""
+    db_template = get_characteristic_template_by_id(db, template_id)
+    if not db_template:
+        return False
+
+    db.delete(db_template)
+    db.commit()
+    return True
+
+
 def get_products(db: Session, skip: int = 0, limit: int = 100):
     products = db.query(models.Product).options(
         joinedload(models.Product.images),
@@ -360,6 +482,7 @@ def get_products(db: Session, skip: int = 0, limit: int = 100):
             "full_description": product.full_description,
             "subcategory_id": product.subcategory_id,
             "brand_id": product.brand_id,
+            "characteristics": product.characteristics,
             "images": [img.image_url for img in images],
             "tags": [{"id": tag.id, "name": tag.name, "value": tag.value} for tag in product.tags]
         }
@@ -396,69 +519,27 @@ def get_product_by_article(db: Session, article: int):
 
 
 def create_product(db: Session, product: schemas.ProductCreate):
-    product_data = product.model_dump(exclude={'images'})
-
-    if not product_data.get('slug'):
-        product_data['slug'] = generate_slug(product_data['text'])
-
-    if not product_data.get('article'):
-        import datetime
-        import random
-        timestamp = int(datetime.datetime.now().timestamp()) % 100000
-        random_part = random.randint(100, 999)
-        product_data['article'] = (timestamp * 1000 + random_part) % 100000000
-
-    counter = 1
-    original_slug = product_data['slug']
-    while db.query(models.Product).filter(models.Product.slug == product_data['slug']).first():
-        product_data['slug'] = f"{original_slug}-{counter}"
-        counter += 1
-
-    while db.query(models.Product).filter(models.Product.article == product_data['article']).first():
-        import datetime
-        import random
-        timestamp = int(datetime.datetime.now().timestamp()) % 100000
-        random_part = random.randint(100, 999)
-        product_data['article'] = (timestamp * 1000 + random_part) % 100000000
-
-    db_product = models.Product(**product_data)
-    db.add(db_product)
-    db.commit()
-    db.refresh(db_product)
-
-    if product.images:
-        for index, image_url in enumerate(product.images):
-            product_image = models.ProductImage(
-                image_url=image_url,
-                product_id=db_product.id
-            )
-            db.add(product_image)
-
-        db.commit()
-        db.refresh(db_product)
-
-    return db_product
-
+    # Генерация article если не передан
     def generate_numeric_article():
         return random.randint(100000, 999999)
 
     if product.article:
-
+        # Проверка уникальности article
         if db.query(models.Product).filter(models.Product.article == product.article).first():
-
             while True:
                 new_article = generate_numeric_article()
                 if not db.query(models.Product).filter(models.Product.article == new_article).first():
                     product.article = new_article
                     break
     else:
-
+        # Генерация нового article
         while True:
             new_article = generate_numeric_article()
             if not db.query(models.Product).filter(models.Product.article == new_article).first():
                 product.article = new_article
                 break
 
+    # Генерация slug если не передан
     if product.slug and db.query(models.Product).filter(models.Product.slug == product.slug).first():
         counter = 1
         while True:
@@ -468,7 +549,6 @@ def create_product(db: Session, product: schemas.ProductCreate):
                 break
             counter += 1
     elif not product.slug:
-
         from slugify import slugify
         product.slug = slugify(product.text, lowercase=True, word_boundary=True)
 
@@ -481,12 +561,94 @@ def create_product(db: Session, product: schemas.ProductCreate):
                     break
                 counter += 1
 
-    product_data = product.dict(exclude={'images', 'tags', 'characteristics'})
+    # Создание продукта
+    product_data = product.model_dump(exclude={'images', 'tags', 'characteristics'})
     db_product = models.Product(**product_data)
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
 
+    # Добавление изображений
+    if product.images:
+        for image_url in product.images:
+            product_image = models.ProductImage(
+                image_url=image_url,
+                product_id=db_product.id
+            )
+            db.add(product_image)
+
+    # Добавление характеристик
+    if hasattr(product, 'characteristics') and product.characteristics:
+        for char_data in product.characteristics:
+            # Создаем CharacteristicItem
+            characteristic = models.CharacteristicItem(
+                name=char_data.name,
+                label=char_data.label,
+                value=char_data.value
+            )
+            db.add(characteristic)
+            db.flush()  # Получаем ID характеристики
+
+            # Создаем связь с продуктом
+            product_char = models.ProductCharacteristic(
+                product_id=db_product.id,
+                characteristic_id=characteristic.id
+            )
+            db.add(product_char)
+
+    db.commit()
+    db.refresh(db_product)
+    return db_product
+
+
+def create_product_with_characteristics(
+        db: Session,
+        product: schemas.ProductCreateForm,  # Измените тип здесь
+        characteristics: List[dict],
+        image_urls: List[str]
+):
+    """Создать продукт с характеристиками и изображениями"""
+    # Создаем продукт
+    db_product = models.Product(
+        text=product.text,
+        price=product.price,
+        subcategory_id=product.subcategory_id,
+        brand_id=product.brand_id,
+        article=product.article,
+        slug=product.slug,
+        discount=product.discount,
+    )
+    db.add(db_product)
+    db.commit()
+    db.refresh(db_product)
+
+    # Добавляем изображения
+    for image_url in image_urls:
+        product_image = models.ProductImage(
+            product_id=db_product.id,
+            image_url=image_url
+        )
+        db.add(product_image)
+
+    # Добавляем характеристики
+    for char_data in characteristics:
+        characteristic = models.CharacteristicItem(
+            name=char_data['name'],
+            label=char_data['label'],
+            value=char_data['value']
+        )
+        db.add(characteristic)
+        db.flush()
+
+        product_char = models.ProductCharacteristic(
+            product_id=db_product.id,
+            characteristic_id=characteristic.id
+        )
+        db.add(product_char)
+
+    db.commit()
+    db.refresh(db_product)
+    return db_product
 
 def update_product(db: Session, product_id: int, product_update: schemas.ProductUpdate):
     db_product = db.query(models.Product).filter_by(id=product_id).first()
@@ -717,124 +879,12 @@ def get_tags_count(db: Session) -> int:
     return db.query(models.Tag).count()
 
 
-def get_characteristics_paginated(
-        db: Session,
-        page: int = 1,
-        size: int = 10,
-        is_active: Optional[bool] = None
-):
-    query = db.query(models.Characteristic)
-
-    if is_active is not None:
-        query = query.filter(models.Characteristic.is_active == is_active)
-
-    total = query.count()
-
-    offset = (page - 1) * size
-
-    items = query.offset(offset).limit(size).all()
-
-    return items, total
-
-
-def get_characteristic(db: Session, characteristic_id: int):
-    return db.query(models.Characteristic).filter(models.Characteristic.id == characteristic_id).first()
-
-
-def get_characteristic_by_value(db: Session, value: str):
-    return db.query(models.Characteristic).filter(models.Characteristic.value == value).first()
-
-
 def generate_slug(text: str) -> str:
     text = unidecode(text)
 
     slug = re.sub(r'[^\w\s-]', '', text.lower())
     slug = re.sub(r'[-\s]+', '-', slug).strip('-_')
     return slug
-
-
-def create_characteristic(db: Session, characteristic_data: schemas.CharacteristicCreate):
-    if not characteristic_data.slug:
-        slug = generate_slug(characteristic_data.name)
-    else:
-        slug = characteristic_data.slug
-
-    final_slug = slug
-    counter = 1
-    while db.query(models.Characteristic).filter(models.Characteristic.slug == final_slug).first():
-        final_slug = f"{slug}-{counter}"
-        counter += 1
-
-    db_characteristic = models.Characteristic(
-        name=characteristic_data.name,
-        value=characteristic_data.value,
-        slug=final_slug,
-        order_index=characteristic_data.order_index,
-        is_active=characteristic_data.is_active
-    )
-    db.add(db_characteristic)
-    db.commit()
-    db.refresh(db_characteristic)
-
-    for item_data in characteristic_data.items:
-        db_item = models.CharacteristicItem(
-            characteristic_id=db_characteristic.id,
-            name=item_data.name,
-            value=item_data.value,
-            order_index=item_data.order_index,
-            is_active=item_data.is_active
-        )
-        db.add(db_item)
-
-    db.commit()
-    db.refresh(db_characteristic)
-    return db_characteristic
-
-
-def update_characteristic(db: Session, characteristic_id: int, characteristic_data: schemas.CharacteristicUpdate):
-    db_characteristic = db.query(models.Characteristic).filter(models.Characteristic.id == characteristic_id).first()
-    if db_characteristic:
-        update_data = characteristic_data.dict(exclude_unset=True)
-
-        if 'name' in update_data and 'slug' not in update_data:
-            new_slug = generate_slug(update_data['name'])
-
-            final_slug = new_slug
-            counter = 1
-            while db.query(models.Characteristic).filter(
-                    models.Characteristic.slug == final_slug,
-                    models.Characteristic.id != characteristic_id
-            ).first():
-                final_slug = f"{new_slug}-{counter}"
-                counter += 1
-            update_data['slug'] = final_slug
-
-
-        elif 'slug' in update_data and update_data['slug']:
-            final_slug = update_data['slug']
-            counter = 1
-            while db.query(models.Characteristic).filter(
-                    models.Characteristic.slug == final_slug,
-                    models.Characteristic.id != characteristic_id
-            ).first():
-                final_slug = f"{update_data['slug']}-{counter}"
-                counter += 1
-            update_data['slug'] = final_slug
-
-        for field, value in update_data.items():
-            setattr(db_characteristic, field, value)
-
-        db.commit()
-        db.refresh(db_characteristic)
-    return db_characteristic
-
-
-def delete_characteristic(db: Session, characteristic_id: int):
-    db_characteristic = db.query(models.Characteristic).filter(models.Characteristic.id == characteristic_id).first()
-    if db_characteristic:
-        db.delete(db_characteristic)
-        db.commit()
-    return db_characteristic
 
 
 def generate_slug_from_name(name: str) -> str:

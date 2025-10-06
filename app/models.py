@@ -15,59 +15,6 @@ product_similar = Table(
 )
 
 
-class Characteristic(Base):
-    __tablename__ = "characteristics"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    value = Column(String(100), nullable=False)
-    slug = Column(String(100), unique=True, index=True, nullable=True)
-    order_index = Column(Integer, default=0)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    items = relationship("CharacteristicItem", back_populates="characteristic", cascade="all, delete-orphan")
-
-
-class CharacteristicItem(Base):
-    __tablename__ = "characteristic_items"
-
-    id = Column(Integer, primary_key=True, index=True)
-    characteristic_id = Column(Integer, ForeignKey("characteristics.id"))
-    name = Column(String(255), nullable=False)
-    value = Column(String(255), nullable=False)
-    order_index = Column(Integer, default=0)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    characteristic = relationship("Characteristic", back_populates="items")
-
-
-class CharacteristicTemplate(Base):
-    __tablename__ = "characteristic_templates"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    description = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    products = relationship("Product", secondary="product_characteristic_templates",
-                            back_populates="characteristic_templates")
-
-
-class ProductCharacteristicTemplate(Base):
-    __tablename__ = "product_characteristic_templates"
-
-    id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(Integer, ForeignKey("products.id"))
-    template_id = Column(Integer, ForeignKey("characteristic_templates.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    __table_args__ = (UniqueConstraint('product_id', 'template_id', name='_product_template_uc'),)
-
-
 class Filter(Base):
     __tablename__ = "filters"
 
@@ -154,6 +101,39 @@ class Brand(Base):
     products = relationship("Product", back_populates="brand")
 
 
+class CharacteristicTemplate(Base):
+    __tablename__ = "characteristic_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+
+    characteristics = relationship("CharacteristicItem", back_populates="template", cascade="all, delete-orphan")
+
+
+class CharacteristicItem(Base):
+    __tablename__ = "characteristic_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    label = Column(String, nullable=False)
+    value = Column(String, nullable=False)
+
+    template_id = Column(Integer, ForeignKey("characteristic_templates.id", ondelete="CASCADE"))
+    template = relationship("CharacteristicTemplate", back_populates="characteristics")
+
+    products = relationship("ProductCharacteristic", back_populates="characteristic")
+
+class ProductCharacteristic(Base):
+    __tablename__ = "product_characteristics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"))
+    characteristic_id = Column(Integer, ForeignKey("characteristic_items.id", ondelete="CASCADE"))
+
+    product = relationship("Product", back_populates="characteristics_assoc")
+    characteristic = relationship("CharacteristicItem", back_populates="products")
+
 class Product(Base):
     __tablename__ = "products"
 
@@ -169,7 +149,6 @@ class Product(Base):
     full_description = Column(Text, nullable=True)
     subcategory_id = Column(Integer, ForeignKey("subcategories.id"))
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
-    characteristics = Column(JSON, nullable=True)
 
     subcategory = relationship("Subcategory", back_populates="products")
     brand = relationship("Brand", back_populates="products")
@@ -185,12 +164,23 @@ class Product(Base):
     documents = relationship("Document", back_populates="product")
     images = relationship("ProductImage", back_populates="product")
     additional_products = relationship("AdditionalProduct", back_populates="product")
-    characteristic_templates = relationship("CharacteristicTemplate", secondary="product_characteristic_templates",
-                                            back_populates="products")
+    characteristics_assoc = relationship("ProductCharacteristic", back_populates="product",
+                                         cascade="all, delete-orphan")
 
     @property
     def image_urls(self):
         return [img.image_url for img in self.images] if self.images else []
+
+    @property
+    def characteristics(self):
+        return [
+            {
+                "name": assoc.characteristic.name,
+                "label": assoc.characteristic.label,
+                "value": assoc.characteristic.value
+            }
+            for assoc in self.characteristics_assoc
+        ]
 
 
 class ProductWarehouse(Base):

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator, model_validator, Field, EmailStr, validator, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import re
 from slugify import slugify
 import enum
@@ -128,64 +128,6 @@ class TagUpdate(BaseModel):
     name: Optional[str] = None
     value: Optional[str] = None
     color: Optional[str] = None
-
-
-class CharacteristicItemBase(BaseModel):
-    name: str
-    value: str
-    order_index: int = 0
-    is_active: bool = True
-
-
-class CharacteristicItemCreate(CharacteristicItemBase):
-    pass
-
-
-class CharacteristicItem(CharacteristicItemBase):
-    id: int
-    characteristic_id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class CharacteristicBase(BaseModel):
-    name: str
-    value: str
-    slug: Optional[str] = None
-    order_index: int = 0
-    is_active: bool = True
-
-
-class CharacteristicCreate(CharacteristicBase):
-    items: List[CharacteristicItemCreate] = []
-
-
-class CharacteristicUpdate(BaseModel):
-    name: Optional[str] = None
-    value: Optional[str] = None
-    slug: Optional[str] = None
-    order_index: Optional[int] = None
-    is_active: Optional[bool] = None
-
-
-class Characteristic(CharacteristicBase):
-    id: int
-    items: List[CharacteristicItem] = []
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class CharacteristicPaginatedResponse(BaseModel):
-    items: List['Characteristic']
-    total: int
-    page: int
-    size: int
-    pages: int
 
 
 class FilterItemBase(BaseModel):
@@ -385,6 +327,65 @@ class SubcategoryUpdate(BaseModel):
             return None
 
 
+class CharacteristicItemBase(BaseModel):
+    name: str
+    label: str
+    value: str
+
+
+class CharacteristicItemCreate(CharacteristicItemBase):
+    pass
+
+
+class CharacteristicItemCreateResponse(BaseModel):
+    name: str
+    label: str
+    value: str
+    order_index: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+class CharacteristicItemResponse(BaseModel):
+    id: int
+    name: str
+    label: str
+    value: str
+    order_index: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+
+class CharacteristicTemplateBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class CharacteristicTemplateCreate(CharacteristicTemplateBase):
+    characteristics: List[CharacteristicItemCreate] = []
+
+
+class CharacteristicTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    characteristics: Optional[List[CharacteristicItemCreate]] = None
+
+
+class CharacteristicTemplateResponse(CharacteristicTemplateBase):
+    id: int
+    characteristics: List[CharacteristicItemResponse]
+
+    class Config:
+        from_attributes = True
+
+
+# Схемы для пагинации
+class CharacteristicTemplatePaginatedResponse(BaseModel):
+    data: List[CharacteristicTemplateResponse]
+    pagination: Optional[Dict[str, Any]] = None
+
+
 class ProductBase(BaseModel):
     text: str
     article: Optional[int] = Field(default=None, description="Автогенерация, если не указан")
@@ -428,7 +429,7 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    characteristics: List[CharacteristicCreate] = []
+    characteristics: List[CharacteristicItemBase] = []
     images: List[str] = []
 
 
@@ -438,7 +439,7 @@ class Product(ProductBase):
     small_description: Optional[str] = None
     full_description: Optional[str] = None
     tags: List['TagResponse'] = []
-    characteristics: List[CharacteristicBase] = []
+    characteristics: List[CharacteristicItemBase] = []
     images: List[dict] = []
 
     class Config:
@@ -458,8 +459,8 @@ class ProductResponse(BaseModel):
     subcategory_id: int
     brand_id: Optional[int] = None
     images: List[str] = []
-    characteristics: List[dict] = []
-    tags: List[TagResponse] = []
+    characteristics: List[CharacteristicItemCreateResponse] = []  # Добавляем характеристики
+    tags: List['TagResponse'] = []
 
     class Config:
         from_attributes = True
@@ -513,6 +514,43 @@ class ProductDetail(Product):
     images: List[str] = []
     similar_products: List[Product] = []
     additional_products: List[dict] = []
+    characteristic_templates: List['CharacteristicTemplateResponse'] = []
+
+
+class ProductBaseNoImages(BaseModel):
+    text: str
+    article: Optional[int] = Field(default=None, description="Автогенерация, если не указан")
+    price: float
+    discount: float = 0
+    slug: Optional[str] = Field(default=None, description="Автогенерация, если не указан")
+    subcategory_id: int
+    brand_id: Optional[int] = None
+
+    @field_validator('slug')
+    @classmethod
+    def validate_slug_format(cls, v):
+        if v is None or v == "":
+            return None
+        if not re.match(r'^[a-z0-9-]+$', v):
+            raise ValueError('Slug может содержать только латинские буквы, цифры и тире')
+        if '--' in v or v.startswith('-') or v.endswith('-'):
+            raise ValueError('Slug не может содержать двойные тире или тире в начале/конце')
+        return v
+
+    @field_validator('article')
+    @classmethod
+    def validate_article_format(cls, v):
+        if v is not None and v != "":
+            try:
+                article_int = int(v)
+                if article_int <= 0:
+                    raise ValueError('Артикул должен быть положительным числом')
+            except ValueError:
+                raise ValueError('Артикул должен быть числом')
+        return v
+
+class ProductCreateForm(ProductBaseNoImages):
+    characteristics: List[CharacteristicItemBase] = []
 
 
 class ProductWarehouseBase(BaseModel):

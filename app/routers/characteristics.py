@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models import UserRole
 from app import crud, schemas
 from app.auth import get_current_user
+from ..dependencies import require_admin
 
 router = APIRouter(prefix="/characteristics", tags=["characteristics"])
 
@@ -17,98 +18,101 @@ def check_admin_access(current_user: dict):
         )
 
 
-@router.post("/", response_model=schemas.Characteristic)
-def create_characteristic(
-        characteristic_data: schemas.CharacteristicCreate,
-        db: Session = Depends(get_db),
-        current_user: dict = Depends(get_current_user)
+@router.get("/", response_model=schemas.CharacteristicTemplatePaginatedResponse)
+def read_characteristic_templates(
+    search: Optional[str] = Query(None, description="Поисковый запрос"),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (1-100)"),
+    db: Session = Depends(get_db)
 ):
-    check_admin_access(current_user)
+    try:
+        skip = (page - 1) * limit
 
-    existing_characteristic = crud.get_characteristic_by_value(db, value=characteristic_data.value)
-    if existing_characteristic:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Характеристика с таким значением уже существует"
-        )
+        if search:
+            # Поиск с пагинацией
+            templates = crud.search_characteristic_templates(db, search_term=search, skip=skip, limit=limit)
+            total_count = crud.search_characteristic_templates_count(db, search_term=search)
+            total_pages = (total_count + limit - 1) // limit if total_count > 0 else 1
 
-    return crud.create_characteristic(db, characteristic_data)
+            return {
+                "data": templates,
+                "pagination": {
+                    "current_page": page,
+                    "total_pages": total_pages,
+                    "limit": limit,
+                    "total_items": total_count,
+                    "has_next": page < total_pages,
+                    "has_prev": page > 1
+                }
+            }
+        else:
+            # Обычный список с пагинацией
+            templates = crud.get_characteristic_templates(db, skip=skip, limit=limit)
+            total_count = crud.get_characteristic_templates_count(db)
+            total_pages = (total_count + limit - 1) // limit if total_count > 0 else 1
 
+            return {
+                "data": templates,
+                "pagination": {
+                    "current_page": page,
+                    "total_pages": total_pages,
+                    "limit": limit,
+                    "total_items": total_count,
+                    "has_next": page < total_pages,
+                    "has_prev": page > 1
+                }
+            }
 
-@router.get("/", response_model=schemas.CharacteristicPaginatedResponse)
-def read_characteristics(
-        page: int = Query(1, ge=1, description="Номер страницы"),
-        size: int = Query(10, ge=1, le=100, description="Размер страницы"),
-        is_active: Optional[bool] = Query(None, description="Фильтр по активности"),
-        db: Session = Depends(get_db),
-        # current_user: dict = Depends(get_current_user)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении шаблонов характеристик: {str(e)}")
+
+@router.get("/{template_id}", response_model=schemas.CharacteristicTemplateResponse)
+def read_characteristic_template(
+    template_id: int,
+    db: Session = Depends(get_db)
 ):
-    # check_admin_access(current_user)
+    template = crud.get_characteristic_template_by_id(db, template_id=template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Шаблон характеристик не найден")
+    return template
 
-    items, total = crud.get_characteristics_paginated(
-        db,
-        page=page,
-        size=size,
-        is_active=is_active
-    )
-
-    pages = (total + size - 1) // size
-
-    return schemas.CharacteristicPaginatedResponse(
-        items=items,
-        total=total,
-        page=page,
-        size=size,
-        pages=pages
-    )
-
-
-
-@router.get("/{characteristic_id}", response_model=schemas.Characteristic)
-def read_characteristic(
-        characteristic_id: int,
-        db: Session = Depends(get_db),
-        current_user: dict = Depends(get_current_user)
+@router.post("/", response_model=schemas.CharacteristicTemplateResponse)
+def create_characteristic_template(
+    template: schemas.CharacteristicTemplateCreate,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(require_admin)
 ):
-    check_admin_access(current_user)
-    db_characteristic = crud.get_characteristic(db, characteristic_id=characteristic_id)
-    if db_characteristic is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Характеристика не найдена"
-        )
-    return db_characteristic
+    try:
+        return crud.create_characteristic_template(db=db, template=template)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании шаблона: {str(e)}")
 
-
-@router.put("/{characteristic_id}", response_model=schemas.Characteristic)
-def update_characteristic(
-        characteristic_id: int,
-        characteristic_data: schemas.CharacteristicUpdate,
-        db: Session = Depends(get_db),
-        current_user: dict = Depends(get_current_user)
+@router.put("/{template_id}", response_model=schemas.CharacteristicTemplateResponse)
+def update_characteristic_template(
+    template_id: int,
+    template_update: schemas.CharacteristicTemplateUpdate,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(require_admin)
 ):
-    check_admin_access(current_user)
-    db_characteristic = crud.update_characteristic(db, characteristic_id=characteristic_id,
-                                                   characteristic_data=characteristic_data)
-    if db_characteristic is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Характеристика не найдена"
-        )
-    return db_characteristic
+    try:
+        updated_template = crud.update_characteristic_template(db=db, template_id=template_id, template_update=template_update)
+        if not updated_template:
+            raise HTTPException(status_code=404, detail="Шаблон характеристик не найден")
+        return updated_template
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при обновлении шаблона: {str(e)}")
 
-
-@router.delete("/{characteristic_id}")
-def delete_characteristic(
-        characteristic_id: int,
-        db: Session = Depends(get_db),
-        current_user: dict = Depends(get_current_user)
+@router.delete("/{template_id}")
+def delete_characteristic_template(
+    template_id: int,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(require_admin)
 ):
-    check_admin_access(current_user)
-    db_characteristic = crud.delete_characteristic(db, characteristic_id=characteristic_id)
-    if db_characteristic is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Характеристика не найдена"
-        )
-    return {"message": "Характеристика успешно удалена"}
+    success = crud.delete_characteristic_template(db=db, template_id=template_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Шаблон характеристик не найден")
+    return {"message": "Шаблон характеристик успешно удален"}
