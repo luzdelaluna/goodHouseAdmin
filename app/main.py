@@ -18,23 +18,23 @@ app = FastAPI(title="Product Catalog API", version="1.0.0")
 app.include_router(auth.router)
 app.include_router(products.router)
 
-origins = [
-    "http://localhost",
-    "http://localhost:8080",
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:8000",
-    'http://admin.tatroof.ru',
-    'http://tatroof.ru',
-    'http://api.tatroof.ru'
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # List of allowed origins
-    allow_credentials=True,  # Allow cookies to be sent with cross-origin requests
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_origins=[
+        "http://tatroof.ru",
+        "https://tatroof.ru",
+        "http://www.tatroof.ru",
+        "https://www.tatroof.ru",
+        "http://admin.tatroof.ru",
+        "https://admin.tatroof.ru",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:8000",
+        "http://localhost:8080",
+    ],  # Разрешенные домены фронтенда
+    allow_credentials=True,
+    allow_methods=["*"],  # Разрешить все методы
+    allow_headers=["*"],  # Разрешить все заголовки
 )
 
 
