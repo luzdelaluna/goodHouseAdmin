@@ -20,6 +20,8 @@ async def create_product_with_upload(
         article: Optional[str] = Form(None),
         slug: Optional[str] = Form(None),
         discount: float = Form(0),
+        small_description: Optional[str] = Form(None),
+        full_description: Optional[str] = Form(None),
         characteristics: Optional[str] = Form(None),
         images: List[UploadFile] = File(..., description="От 1 до 15 изображений"),
         db: Session = Depends(database.get_db),
@@ -104,6 +106,8 @@ async def create_product_with_upload(
             "article": article_int,
             "slug": slug,
             "discount": discount,
+            "small_description": small_description,
+            "full_description": full_description,
         }
 
         # Используем новую схему без валидации изображений
@@ -351,35 +355,31 @@ def read_products(
         raise e
 
 
-@router.get("/{slug}", response_model=schemas.ProductDetail, operation_id="get_product_by_id")
-def read_product(slug: str, db: Session = Depends(database.get_db)):
-    try:
-        product = crud.get_product_by_slug(db, slug=slug)
-        if product is None:
-            raise HTTPException(status_code=404, detail="Product not found")
-
-        product_detail = schemas.ProductDetail.from_orm(product)
-        product_detail.warehouses = [wh.address for wh in product.warehouses]
-        product_detail.documents = [{"name": doc.name, "file_url": doc.file_url} for doc in product.documents]
-        product_detail.images = [img.image_url for img in product.images]
-        product_detail.additional_products = [
-            {"name": ap.name, "value": ap.value, "product_slug": ap.product_slug}
-            for ap in product.additional_products
-        ]
-
-        return product_detail
-    except HTTPException as e:
-        raise e
-
-
 @router.get("/{slug}", response_model=schemas.ProductDetail, operation_id="get_product_by_slug")
-def read_product(slug: str, db: Session = Depends(database.get_db)):
+def get_product_by_slug(slug: str, db: Session = Depends(database.get_db)):
+    """
+    Получить полную информацию о продукте по slug
+    """
     try:
-        product = crud.get_product_by_slug(db, slug=slug)
+        # Получаем продукт со всеми отношениями
+        product = db.query(models.Product).options(
+            joinedload(models.Product.images),
+            joinedload(models.Product.tags),
+            joinedload(models.Product.brand),
+            joinedload(models.Product.subcategory).joinedload(models.Subcategory.category),
+            joinedload(models.Product.warehouses),
+            joinedload(models.Product.documents),
+            joinedload(models.Product.additional_products),
+            joinedload(models.Product.characteristics_assoc).joinedload(models.ProductCharacteristic.characteristic),
+            joinedload(models.Product.similar_products).options(
+                joinedload(models.Product.images)
+            )
+        ).filter(models.Product.slug == slug).first()
+
         if product is None:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # Преобразуем в схему
+        # Формируем ответ
         product_detail = schemas.ProductDetail(
             id=product.id,
             text=product.text,
@@ -395,36 +395,37 @@ def read_product(slug: str, db: Session = Depends(database.get_db)):
             images=[img.image_url for img in product.images],
             characteristics=[
                 schemas.CharacteristicItemResponse(
-                    id=char.id,
-                    name=char.name,
-                    label=char.label,
-                    value=char.value
-                ) for char in product.characteristics
+                    id=char_assoc.characteristic.id,
+                    name=char_assoc.characteristic.name,
+                    label=char_assoc.characteristic.label,
+                    value=char_assoc.characteristic.value
+                ) for char_assoc in product.characteristics_assoc
+                if char_assoc.characteristic
             ],
             tags=[schemas.TagResponse.from_orm(tag) for tag in product.tags],
+            brand=schemas.BrandResponse.from_orm(product.brand) if product.brand else None,
+            subcategory=schemas.SubcategoryResponse.from_orm(product.subcategory) if product.subcategory else None,
+            category=schemas.CategoryResponse.from_orm(
+                product.subcategory.category) if product.subcategory and product.subcategory.category else None,
             warehouses=[wh.address for wh in product.warehouses],
             documents=[{"name": doc.name, "file_url": doc.file_url} for doc in product.documents],
             additional_products=[
                 {"name": ap.name, "value": ap.value, "product_slug": ap.product_slug}
                 for ap in product.additional_products
             ],
-            similar_products=[],  # Нужно добавить логику для similar_products
-            characteristic_templates=[
-                schemas.CharacteristicTemplateResponse(
-                    id=template.id,
-                    name=template.name,
-                    description=template.description,
-                    is_active=template.is_active,
-                    created_at=template.created_at,
-                    items=[
-                        schemas.CharacteristicItemResponse(
-                            id=item.id,
-                            name=item.name,
-                            label=item.label,
-                            value=item.value
-                        ) for item in template.items
-                    ]
-                ) for template in product.characteristic_templates
+            similar_products=[
+                schemas.ProductShortResponse(
+                    id=similar.id,
+                    text=similar.text,
+                    article=similar.article,
+                    price=similar.price,
+                    discount=similar.discount,
+                    slug=similar.slug,
+                    small_description=similar.small_description,
+                    subcategory_id=similar.subcategory_id,
+                    brand_id=similar.brand_id,
+                    image=similar.images[0].image_url if similar.images else None
+                ) for similar in product.similar_products
             ]
         )
 
@@ -432,6 +433,8 @@ def read_product(slug: str, db: Session = Depends(database.get_db)):
 
     except HTTPException as e:
         raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse, operation_id="update_product")
@@ -446,6 +449,8 @@ async def update_product(
         discount: Optional[float] = Form(None),
         characteristics: Optional[str] = Form(None),
         images: Optional[List[UploadFile]] = File(None),
+        small_description: Optional[str] = Form(None),
+        full_description: Optional[str] = Form(None),
         db: Session = Depends(database.get_db),
         _current_user: dict = Depends(dependencies.require_admin)
 ):
@@ -521,6 +526,12 @@ async def update_product(
 
         if discount is not None:
             update_data["discount"] = discount
+
+        if small_description is not None:
+            update_data["small_description"] = small_description
+
+        if full_description is not None:
+            update_data["full_description"] = full_description
 
         # Автогенерация slug если изменилось название
         if text is not None and text != db_product.text and slug is None:
@@ -668,3 +679,72 @@ def delete_product(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
+
+
+@router.get("/category/{category_slug}", response_model=schemas.PaginatedResponse,
+            operation_id="get_products_by_category_slug")
+def get_products_by_category_slug(
+        category_slug: str,
+        page: int = Query(1, ge=1, description="Номер страницы"),
+        size: int = Query(20, ge=1, le=100, description="Размер страницы"),
+        db: Session = Depends(database.get_db)
+):
+    """
+    Получить все продукты для категории по её slug (только основные поля)
+    """
+    try:
+        # Проверяем существование категории по slug
+        category = db.query(models.Category).filter(models.Category.slug == category_slug).first()
+        if not category:
+            raise HTTPException(status_code=404, detail=f"Category with slug '{category_slug}' not found")
+
+        skip = (page - 1) * size
+
+        # Получаем продукты через подкатегории
+        db_products = db.query(models.Product).options(
+            joinedload(models.Product.images)
+        ).join(
+            models.Subcategory
+        ).filter(
+            models.Subcategory.category_id == category.id
+        ).offset(skip).limit(size).all()
+
+        # Преобразуем в упрощенную схему
+        products = []
+        for db_product in db_products:
+            # Берем только первое изображение
+            first_image = db_product.images[0].image_url if db_product.images else None
+
+            product_data = schemas.ProductShortResponse(
+                id=db_product.id,
+                text=db_product.text,
+                article=db_product.article,
+                price=db_product.price,
+                discount=db_product.discount,
+                slug=db_product.slug,
+                small_description=db_product.small_description,
+                subcategory_id=db_product.subcategory_id,
+                brand_id=db_product.brand_id,
+                image=first_image
+            )
+            products.append(product_data)
+
+        # Получаем общее количество
+        total = db.query(models.Product).join(
+            models.Subcategory
+        ).filter(
+            models.Subcategory.category_id == category.id
+        ).count()
+
+        return {
+            "items": products,
+            "total": total,
+            "page": page,
+            "size": size,
+            "pages": (total + size - 1) // size if size > 0 else 1
+        }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

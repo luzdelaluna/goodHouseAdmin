@@ -215,3 +215,28 @@ async def delete_subcategory(
         db.rollback()
         print(f"Error deleting subcategory {subcategory_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category/{category_slug}", response_model=List[schemas.Subcategory])
+def get_subcategories_by_category(
+        category_slug: str,
+        db: Session = Depends(database.get_db)
+):
+    """
+    Получить все подкатегории для определенной категории
+    """
+    try:
+        category = db.query(models.Category).filter(models.Category.slug == category_slug).first()
+        if not category:
+            raise HTTPException(status_code=404, detail=f"Category with slug '{category_slug}' not found")
+
+        subcategories = db.query(models.Subcategory).filter(
+            models.Subcategory.category_id == category.id
+        ).all()
+
+        return subcategories
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

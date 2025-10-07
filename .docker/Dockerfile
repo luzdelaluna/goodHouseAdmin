@@ -1,4 +1,4 @@
-FROM python:3.12.3-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -8,20 +8,23 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование requirements и установка Python зависимостей
+# Копирование файлов зависимостей
 COPY requirements.txt .
+
+# Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование исходного кода
 COPY . .
 
-# Создание непривилегированного пользователя
-RUN adduser --disabled-password --gecos '' appuser
-RUN chown -R appuser:appuser /app
-USER appuser
+# Создание директории для логов
+RUN mkdir -p /app/logs
 
-# Порт приложения
+# Применение миграций Alembic при запуске
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
 EXPOSE 8000
 
-# Команда запуска
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Запуск приложения
+CMD ["./entrypoint.sh"]

@@ -240,6 +240,16 @@ class CategoryUpdate(BaseModel):
             return None
 
 
+class CategoryResponse(BaseModel):
+    id: int
+    text: str
+    slug: str
+    icon: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class BrandBase(BaseModel):
     image: str
     name: str
@@ -251,6 +261,15 @@ class BrandCreate(BrandBase):
 
 class Brand(BrandBase):
     id: int
+
+    class Config:
+        from_attributes = True
+
+
+class BrandResponse(BaseModel):
+    id: int
+    name: str
+    image: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -325,6 +344,18 @@ class SubcategoryUpdate(BaseModel):
             return slugify(new_text, lowercase=True, word_boundary=True)
         else:
             return None
+
+
+class SubcategoryResponse(BaseModel):
+    id: int
+    text: str
+    slug: str
+    image: Optional[str] = None
+    category_id: int
+    category: Optional[CategoryResponse] = None
+
+    class Config:
+        from_attributes = True
 
 
 class CharacteristicItemBase(BaseModel):
@@ -466,6 +497,22 @@ class ProductResponse(BaseModel):
         from_attributes = True
 
 
+class ProductShortResponse(BaseModel):
+    id: int
+    text: str
+    article: Optional[int] = None
+    price: float
+    discount: float = 0
+    slug: str
+    small_description: Optional[str] = None
+    subcategory_id: int
+    brand_id: Optional[int] = None
+    image: Optional[str] = None  # Только первое изображение
+
+    class Config:
+        from_attributes = True
+
+
 class ProductUpdate(BaseModel):
     images: Optional[str] = None
     text: Optional[str] = None
@@ -475,6 +522,8 @@ class ProductUpdate(BaseModel):
     slug: Optional[str] = None
     subcategory_id: Optional[int] = None
     brand_id: Optional[int] = None
+    small_description: Optional[str] = None
+    full_description: Optional[str] = None
 
     @field_validator('slug')
     @classmethod
@@ -508,13 +557,32 @@ class ProductsByTagResponse(BaseModel):
     total: int
 
 
-class ProductDetail(Product):
-    warehouses: List[str] = []
-    documents: List[dict] = []
+class ProductDetail(BaseModel):
+    id: int
+    text: str
+    article: Optional[int] = None
+    price: float
+    discount: float = 0
+    slug: str
+    in_stock: bool = True
+    small_description: Optional[str] = None
+    full_description: Optional[str] = None
+    short_description: Optional[str] = None  # Добавьте если нужно
+    subcategory_id: int
+    brand_id: Optional[int] = None
     images: List[str] = []
-    similar_products: List[Product] = []
-    additional_products: List[dict] = []
-    characteristic_templates: List['CharacteristicTemplateResponse'] = []
+    characteristics: List[CharacteristicItemResponse] = []
+    tags: List[TagResponse] = []
+    brand: Optional[BrandResponse] = None
+    subcategory: Optional[SubcategoryResponse] = None
+    category: Optional[CategoryResponse] = None  # Добавьте если нужно
+    warehouses: List[str] = []
+    documents: List[Dict[str, str]] = []
+    additional_products: List[Dict[str, str]] = []
+    similar_products: List[ProductShortResponse] = []
+
+    class Config:
+        from_attributes = True
 
 
 class ProductBaseNoImages(BaseModel):
@@ -525,6 +593,8 @@ class ProductBaseNoImages(BaseModel):
     slug: Optional[str] = Field(default=None, description="Автогенерация, если не указан")
     subcategory_id: int
     brand_id: Optional[int] = None
+    small_description: Optional[str] = None
+    full_description: Optional[str] = None
 
     @field_validator('slug')
     @classmethod

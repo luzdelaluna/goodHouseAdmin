@@ -502,12 +502,18 @@ def get_product_by_id(db: Session, product_id: int):
 
 
 def get_product_by_slug(db: Session, slug: str):
+    """
+    Получить продукт по slug со всеми отношениями
+    """
     return db.query(models.Product).options(
         joinedload(models.Product.images),
         joinedload(models.Product.tags),
+        joinedload(models.Product.brand),
+        joinedload(models.Product.subcategory),
         joinedload(models.Product.warehouses),
         joinedload(models.Product.documents),
-        joinedload(models.Product.additional_products)
+        joinedload(models.Product.additional_products),
+        joinedload(models.Product.characteristics_assoc).joinedload(models.ProductCharacteristic.characteristic)
     ).filter(models.Product.slug == slug).first()
 
 
