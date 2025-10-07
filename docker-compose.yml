@@ -16,7 +16,7 @@ services:
     depends_on:
       - db
     networks:
-      - fastapi_network
+      - tatroof-network
 
   db:
     image: postgres:15-alpine
@@ -32,11 +32,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./logs/postgres:/var/log/postgresql
     networks:
-      - fastapi_network
+      - tatroof-network
 
 volumes:
   postgres_data:
 
 networks:
-  fastapi_network:
-    driver: bridge
+  tatroof-network:
+    external: true
+    name: tatroof-network
