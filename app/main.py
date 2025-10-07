@@ -20,18 +20,7 @@ app.include_router(products.router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://tatroof.ru",
-        "https://tatroof.ru",
-        "http://www.tatroof.ru",
-        "https://www.tatroof.ru",
-        "http://admin.tatroof.ru",
-        "https://admin.tatroof.ru",
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:8000",
-        "http://localhost:8080",
-    ],  # Разрешенные домены фронтенда
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],  # Разрешить все методы
     allow_headers=["*"],  # Разрешить все заголовки
